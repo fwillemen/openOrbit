@@ -1,0 +1,73 @@
+name: Fleet Verify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'project/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'project/**'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    if: hashFiles('project/pyproject.toml') != ''
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install project dependencies
+        run: cd project && uv sync --extra dev
+
+      - name: Run ruff lint
+        run: cd project && uv run ruff check src/ tests/
+
+      - name: Run mypy
+        run: cd project && uv run mypy src/
+
+      - name: Run tests with coverage
+        run: cd project && uv run pytest --cov=src --cov-report=term-missing --cov-report=json -v
+
+      - name: Check coverage threshold (80%)
+        run: |
+          python3 -c "
+          import json, sys
+          try:
+              data = json.load(open('project/coverage.json'))
+              pct = data['totals']['percent_covered']
+              print(f'Coverage: {pct:.1f}%')
+              if pct < 80:
+                  print(f'❌ Coverage {pct:.1f}% is below the 80% threshold.')
+                  sys.exit(1)
+              print(f'✅ Coverage {pct:.1f}% meets the 80% threshold.')
+          except FileNotFoundError:
+              print('⚠️  coverage.json not found — skipping threshold check.')
+          "
+
+      - name: Post coverage to PR summary
+        if: always()
+        run: |
+          echo "## 🧪 Fleet Verify Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f project/coverage.json ]; then
+            python3 -c "
+          import json
+          data = json.load(open('project/coverage.json'))
+          pct = data['totals']['percent_covered']
+          icon = '✅' if pct >= 80 else '❌'
+          print(f'| Metric | Value |')
+          print(f'|--------|-------|')
+          print(f'| {icon} Coverage | {pct:.1f}% |')
+          print(f'| Threshold | 80% |')
+          " >> $GITHUB_STEP_SUMMARY
+          fi

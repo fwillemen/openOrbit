@@ -1,0 +1,43 @@
+# Fleet state database (machine state — not for humans)
+state/fleet.db
+state/*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+
+# Build / dist
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Testing / coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Linting / type checking
+.mypy_cache/
+.ruff_cache/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Fleet runtime artifacts (not committed)
+state/agent-log.ndjson
+state/handoffs/*
+!state/handoffs/.gitkeep
+state/audit.md
+state/retrospective.md

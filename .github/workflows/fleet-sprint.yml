@@ -1,0 +1,93 @@
+name: Fleet Sprint
+
+on:
+  workflow_dispatch:
+    inputs:
+      sprint_size:
+        description: 'Number of backlog items to include in this sprint'
+        required: true
+        default: '3'
+        type: string
+      budget_usd:
+        description: 'Max budget for this sprint (USD)'
+        required: false
+        default: '5.00'
+        type: string
+
+jobs:
+  run-sprint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate goal.md is filled in
+        run: |
+          if grep -q '\[FILL IN' state/goal.md; then
+            echo "❌ state/goal.md has not been configured. Fill in the placeholders first."
+            exit 1
+          fi
+          echo "✅ state/goal.md is configured."
+
+      - name: Initialize fleet database
+        run: bash scripts/init-state.sh
+
+      - name: Install Copilot CLI
+        run: |
+          # Install GitHub CLI (includes Copilot extension)
+          type -p gh >/dev/null || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+          sudo apt update && sudo apt install gh -y)
+          gh extension install github/gh-copilot --force
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Fleet Sprint
+        run: |
+          echo "🚀 Starting Fleet Sprint (size: ${{ inputs.sprint_size }}, budget: \$${{ inputs.budget_usd }})"
+          # The scrum-master agent handles full sprint orchestration.
+          # In CI mode, pipe the fleet-sprint prompt to Copilot CLI.
+          gh copilot suggest "Use the scrum-master agent to run a sprint building the top ${{ inputs.sprint_size }} pending backlog items. Budget: \$${{ inputs.budget_usd }}. Run fully autonomously." --target shell || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Generate Sprint Summary
+        if: always()
+        run: |
+          echo "## 🏁 Fleet Sprint Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          python3 scripts/fleet-status.sh 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "Status script unavailable" >> $GITHUB_STEP_SUMMARY
+          if [ -f state/agent-log.ndjson ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Agent Events" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -20 state/agent-log.ndjson >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Commit updated state
+        if: always()
+        run: |
+          git config user.name "fleet-bot"
+          git config user.email "223556219+Copilot@users.noreply.github.com"
+          git add state/ project/ docs/ || true
+          git diff --staged --quiet || git commit -m "chore(ci): sprint results from GitHub Actions run ${{ github.run_id }}
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+          git push || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
