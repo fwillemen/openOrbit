@@ -99,3 +99,60 @@ Generated projects use these defaults unless the goal specifies otherwise:
 Edit `.github/instructions/python-standards.instructions.md` — this file is
 automatically included in every agent's context and defines conventions for the
 generated code.
+
+---
+
+## Visualization
+
+Fleet includes a zero-dependency pixelated agent dashboard built with pure Python 3 stdlib.
+
+### Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/fleet-viz.py` | Agent dashboard — snapshot, live watch, or event replay |
+| `scripts/fleet-splash.py` | Animated intro banner shown after `init-state.sh` |
+
+### Modes
+
+```bash
+# Single snapshot (called automatically by fleet-status.sh)
+python3 scripts/fleet-viz.py state/fleet.db
+
+# Live auto-refresh every 2 s (ANSI cursor repositioning, no flicker)
+python3 scripts/fleet-viz.py --watch state/fleet.db
+
+# Replay past sprint event-by-event from agent log
+python3 scripts/fleet-viz.py --replay state/agent-log.ndjson
+
+# Animated intro banner
+python3 scripts/fleet-splash.py
+```
+
+### Rendering Technique
+
+The visualization uses **Unicode half-block characters** (`▀` U+2580) with ANSI
+truecolor escape sequences (`\033[38;2;R;G;Bm` foreground / `\033[48;2;R;G;Bm`
+background). Each terminal character cell carries **two pixels** — the top pixel
+uses the foreground colour and the bottom pixel uses the background colour —
+yielding 2× vertical resolution with no external libraries.
+
+Sprites are 5 characters wide × 4 lines tall (= 5×8 pixels). Each agent has two
+animation frames for an active "working" state.
+
+**Palette**: PICO-8-inspired 16-colour set stored as RGB tuples. Transparent
+pixels are rendered against terminal background `(15, 15, 25)`.
+
+**Graceful degradation**: both scripts silently exit when:
+- stdout is not a TTY (piped output, CI environments)
+- Terminal width < 60 columns
+
+### Status Colour Coding
+
+| Status | Colour |
+|--------|--------|
+| idle | Dim grey |
+| active / running | Bright yellow |
+| done | Green |
+| failed | Red |
+| blocked | Orange |

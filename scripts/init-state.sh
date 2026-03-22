@@ -74,4 +74,10 @@ sed 's/^/   │  /' "$REPO_ROOT/fleet/prompts/fleet-sprint.md"
 echo "   └─────────────────────────────────────────────────────────────────┘"
 echo ""
 echo "   💡 Check status at any time: bash scripts/fleet-status.sh"
+echo "   🎨 Live agent dashboard:     python3 scripts/fleet-viz.py --watch"
 echo ""
+
+# Animated splash (interactive terminals only, graceful skip)
+if [ -t 1 ]; then
+  python3 "$SCRIPT_DIR/fleet-splash.py" 2>/dev/null || true
+fi

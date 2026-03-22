@@ -127,3 +127,9 @@ except Exception:
 
 conn.close()
 PYEOF
+
+# Show pixelated agent dashboard (interactive terminals only, graceful skip)
+if [ -t 1 ]; then
+  echo ""
+  python3 "$SCRIPT_DIR/fleet-viz.py" "$DB_PATH" 2>/dev/null || true
+fi

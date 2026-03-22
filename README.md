@@ -3,11 +3,12 @@
 > **A GitHub Copilot CLI template that builds your Python project for you.**
 
 [![Use this template](https://img.shields.io/badge/Use%20this%20template-2ea44f?style=for-the-badge&logo=github)](https://github.com/fwillemen/fleet/generate)
+[![CI — Fleet Verify](https://github.com/fwillemen/fleet/actions/workflows/fleet-verify.yml/badge.svg)](https://github.com/fwillemen/fleet/actions/workflows/fleet-verify.yml)
 
-Fleet is a reusable framework for semi-autonomous software development. You describe
-what you want to build in `state/goal.md`. A coordinated fleet of six specialized
-AI agents — Product Owner, Scrum Master, Architect, Programmer, Tester, and Docs Writer
-— plan, code, test, and document your Python project, sprint by sprint.
+Fleet is a reusable framework for semi-autonomous software development. Describe what
+you want to build in `state/goal.md`. Eight specialized AI agents — orchestrated by
+the Scrum Master — plan, design, implement, review, test, document, and retrospect
+your Python project, sprint by sprint.
 
 ---
 
@@ -15,10 +16,50 @@ AI agents — Product Owner, Scrum Master, Architect, Programmer, Tester, and Do
 
 - **Instant project planning** — MoSCoW-prioritized backlog from a plain-English goal
 - **Automated implementation** — agents write, test, and iterate until coverage ≥ 80%
+- **Built-in quality gate** — code review (ruff / mypy / secret scan) runs before every test
+- **Self-healing test loop** — failures are typed and diagnosed; the Programmer gets targeted fix hints
 - **Architecture decisions recorded** — every design choice logged as an ADR
-- **Documentation generated** — as features land, docs are written automatically
-- **Sprint-based delivery** — run as many or as few features per sprint as you like
+- **Living documentation** — `project/README.md` and `docs/` are updated after every sprint item
+- **Sprint retrospectives** — automatic analysis of fix cycles, coverage trends, and cost
+- **Cost-aware execution** — per-agent token budgets with configurable per-sprint cap
+- **Parallel sprint items** — dependency-aware scheduling runs up to 3 items concurrently
+- **Multi-model routing** — each agent role uses the optimal model (configurable in `models.yaml`)
+- **CI/CD ready** — GitHub Actions workflows included for unattended operation
 - **Fully portable output** — `project/` is a standalone Python project you own
+
+---
+
+## 🤖 Agent Roster
+
+| Agent | Role | Invoked |
+|-------|------|---------|
+| **Product Owner** | Reads `state/goal.md` → prioritized backlog | Once, at start |
+| **Scrum Master** | Orchestrates the full sprint cycle | Each sprint |
+| **Architect** | Designs solution, writes ADR, scaffolds `project/` | Per item |
+| **Programmer** | Implements Python features (type-safe, tested) | Per item |
+| **Code Reviewer** | Runs ruff / mypy / secret scan / complexity checks | Per item |
+| **Tester** | Runs `pytest --cov`; typed failure diagnosis ≥80% | Per item |
+| **Docs Writer** | Updates `docs/` and `project/README.md` | Per item |
+| **Retrospective** | Analyzes metrics, annotates agents with improvements | End of sprint |
+
+### Delivery Chain
+```
+Product Owner ──▶ backlog
+                      │
+              Scrum Master (per sprint)
+                      │
+            ┌─────────▼──────────┐
+            │  Step 0: Context   │  ← build-context-brief.sh
+            │  Step 1: Architect │  ← design + ADR
+            │  Step 2: Programmer│  ← implement
+            │  Step 3: Code Review│ ← quality gate (ruff/mypy/secrets)
+            │  Step 4: Tester    │  ← pytest ≥80%; self-healing fix loop
+            │  Step 5: Docs Writer│ ← docs/ + project/README.md
+            └─────────┬──────────┘
+                      │  (repeat for each sprint item, up to P=3 in parallel)
+                      ▼
+               Retrospective ──▶ state/retrospective.md + agent annotations
+```
 
 ---
 
@@ -35,9 +76,6 @@ name your repo → clone it → fill in `state/goal.md` → launch Copilot CLI.
 pip install cookiecutter
 cookiecutter gh:fwillemen/fleet --checkout cookiecutter
 ```
-
-Follow the prompts: project name, slug, description, GitHub username, Python version.
-A post-generation hook initializes the state database automatically.
 
 ### Then: launch the fleet
 
@@ -62,22 +100,7 @@ Use the product-owner agent to create a backlog
 Use the scrum-master agent to build the top 5 features
 ```
 
-That's it. Watch your project get built.
-
----
-
-## 🤖 Agent Roster
-
-| Agent | Role |
-|-------|------|
-| **Product Owner** | Reads `state/goal.md` → prioritized backlog |
-| **Scrum Master** | Coordinates sprint: delegates to each agent in sequence |
-| **Architect** | Designs solution, scaffolds `project/` |
-| **Programmer** | Implements Python features (loops until tests pass) |
-| **Tester** | Runs `pytest --cov`; enforces ≥80% coverage |
-| **Docs Writer** | Generates documentation per completed feature |
-
-See [AGENTS.md](AGENTS.md) for the full delegation chain and agent details.
+That's it. Watch your project get built — with docs, tests, and a retrospective included.
 
 ---
 
@@ -86,31 +109,45 @@ See [AGENTS.md](AGENTS.md) for the full delegation chain and agent details.
 ```
 fleet/
 ├── .github/
-│   ├── agents/              ← Six agent definitions (Markdown)
-│   ├── copilot-instructions.md
-│   └── instructions/        ← Coding standards (auto-injected into agents)
-├── fleet/
-│   ├── README.md            ← Detailed user guide
-│   └── prompts/             ← Ready-made prompt templates
+│   ├── agents/
+│   │   ├── product-owner.agent.md
+│   │   ├── scrum-master.agent.md
+│   │   ├── architect.agent.md
+│   │   ├── programmer.agent.md
+│   │   ├── code-reviewer.agent.md    ← quality gate
+│   │   ├── tester.agent.md
+│   │   ├── docs-writer.agent.md
+│   │   ├── retrospective.agent.md    ← sprint analysis
+│   │   └── models.yaml               ← per-role model config + rate cards
+│   ├── workflows/
+│   │   ├── fleet-sprint.yml          ← run sprints via GitHub Actions
+│   │   └── fleet-verify.yml          ← auto-verify coverage on push/PR
+│   ├── copilot-instructions.md       ← agent context (auto-injected)
+│   └── instructions/
+│       └── python-standards.instructions.md
 ├── scripts/
-│   ├── init-state.sh        ← Initialize state/fleet.db
-│   └── fleet-status.sh      ← Print current sprint status
+│   ├── init-state.sh                 ← initialize state/fleet.db
+│   ├── fleet-status.sh               ← live sprint status + cost summary
+│   ├── fleet-viz.py                  ← pixelated agent dashboard (--watch / --replay)
+│   ├── fleet-splash.py               ← animated intro banner
+│   ├── build-context-brief.sh        ← generates agent memory brief
+│   └── generate-audit.sh             ← generates state/audit.md from event log
 ├── state/
-│   ├── goal.md              ← ✏️  YOU FILL THIS IN
-│   ├── backlog.md           ← Auto-generated by Product Owner
-│   ├── sprint.md            ← Auto-updated by Scrum Master
-│   ├── progress.md          ← Auto-updated by all agents
-│   └── decisions.md         ← Architecture Decision Records
-├── docs/                    ← Framework + generated project documentation
-├── project/                 ← ALL generated code lives here
-└── AGENTS.md                ← Agent roster and full delegation chain
+│   ├── goal.md                       ← ✏️  YOU FILL THIS IN
+│   ├── backlog.md                    ← auto-generated by Product Owner
+│   ├── sprint.md                     ← auto-updated by Scrum Master
+│   ├── progress.md                   ← auto-updated by all agents
+│   ├── decisions.md                  ← Architecture Decision Records
+│   └── schema.sql                    ← SQLite schema (used by init-state.sh)
+├── docs/                             ← framework documentation
+├── fleet/prompts/                    ← ready-made prompt templates
+├── project/                          ← ALL generated code lives here
+└── AGENTS.md                         ← agent roster + delegation chain details
 ```
 
 ---
 
 ## ⚙️ Technology Stack (Defaults)
-
-Generated projects use these conventions (override in `state/goal.md`):
 
 | Concern | Default |
 |---------|---------|
@@ -122,15 +159,16 @@ Generated projects use these conventions (override in `state/goal.md`):
 | Docstrings | Google style |
 | Commit style | Conventional Commits |
 | Model routing | `models.yaml` (per-role, configurable) |
+| Default sprint budget | $5.00 USD (configurable) |
 
 ---
 
 ## 📖 Documentation
 
-- [Setup Guide](docs/setup.md) — prerequisites, installation, first-time setup
-- [Usage Guide](docs/usage.md) — how to drive the agents, sprint commands
-- [Architecture](docs/architecture.md) — how the framework is structured
-- [User Guide](fleet/README.md) — comprehensive reference with troubleshooting
+- [Setup Guide](docs/setup.md) — prerequisites, installation, CI/CD, model config
+- [Usage Guide](docs/usage.md) — how to drive the agents, sprint commands, tester loop
+- [Architecture](docs/architecture.md) — framework internals, observability, handoffs
+- [Full Agent Guide](AGENTS.md) — complete delegation chain with all 8 agents
 
 ---
 
@@ -138,9 +176,31 @@ Generated projects use these conventions (override in `state/goal.md`):
 
 ```bash
 copilot --continue
+# or paste fleet/prompts/fleet-resume.md at the start of a new session
 ```
 
-Or paste `fleet/prompts/fleet-resume.md` at the start of a new session.
+Check current state at any time:
+
+```bash
+bash scripts/fleet-status.sh
+
+# Live pixelated agent dashboard (auto-refreshes every 2 s)
+python3 scripts/fleet-viz.py --watch state/fleet.db
+
+# Replay a past sprint as an animation
+python3 scripts/fleet-viz.py --replay state/agent-log.ndjson
+```
+
+---
+
+## 🔁 CI/CD (GitHub Actions)
+
+| Workflow | Trigger | What it does |
+|----------|---------|--------------|
+| `fleet-sprint.yml` | Manual (`workflow_dispatch`) | Runs a full sprint autonomously in CI |
+| `fleet-verify.yml` | Push / PR to `project/` | Runs ruff → mypy → pytest; fails if coverage < 80% |
+
+See [docs/setup.md](docs/setup.md) for required secrets (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`).
 
 ---
 
@@ -151,7 +211,8 @@ Or paste `fleet/prompts/fleet-resume.md` at the start of a new session.
 3. Run `bash scripts/init-state.sh`
 4. Start Copilot CLI and invoke the agents
 
-Your `state/goal.md` is the only input the fleet needs. Everything else is automated.
+Your `state/goal.md` is the only input the fleet needs. Everything else — backlog,
+architecture, code, tests, docs, retrospective — is automated.
 
 ---
 

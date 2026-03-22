@@ -140,6 +140,34 @@ Field guide:
 echo '{"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","agent":"docs-writer","sprint_id":"<SPRINT_ID>","item_id":"<ITEM_ID>","step":1,"action":"<ACTION>","outcome":"pass","tokens_est":0}' >> state/agent-log.ndjson
 ```
 
+## Living Documentation — Keep project/README.md Current
+
+**Every time you complete a sprint item, you must update `project/README.md`.**
+This file is the primary entry point for anyone using the generated project. It must
+always reflect the current feature set — not just the features from earlier sprints.
+
+### project/README.md Update Protocol
+
+1. **If `project/README.md` does not exist** (first sprint item): create it with:
+   - Project name and one-paragraph description (from `state/goal.md`)
+   - Installation instructions (`cd project && uv sync`)
+   - A "Features" section listing this first feature
+   - A "Usage" section with a working code example for this feature
+   - A "Development" section (run tests, lint, type check)
+
+2. **If `project/README.md` already exists** (subsequent items): add this feature to:
+   - The "Features" list (bullet point or table row)
+   - The "Usage" section (new subsection with example)
+   - Do not remove or rewrite existing sections — only append
+
+3. **Keep it accurate**: if this sprint item changes existing behaviour, update
+   the corresponding examples in `project/README.md`.
+
+### Treat These as a Unit
+When you update `docs/api/<module>.md` and `docs/quickstart.md`, also update
+`project/README.md`. The three documents should tell a consistent story. Commit
+all three together in a single `docs(...)` commit.
+
 ## Quality Standards
 - Documentation must be accurate — if the code does X, say X, not Y
 - All code examples must be syntactically correct and runnable
