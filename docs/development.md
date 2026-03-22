@@ -50,6 +50,283 @@ project/
 
 ---
 
+## Working with the Database
+
+### Repository Layer Overview
+
+The database layer provides a clean, async-first repository pattern:
+
+- **`db.py`** — 13 repository functions for type-safe database operations
+- **`models/db.py`** — Pydantic models for data validation and serialization
+- **`schema.sql`** — SQLite schema with 4 tables, indexes, and FTS5 support
+
+All functions are async and use dependency injection via `get_db()`.
+
+### Schema Overview
+
+Four main tables:
+
+| Table | Purpose |
+|-------|---------|
+| `osint_sources` | Registry of OSINT data sources/scrapers |
+| `raw_scrape_records` | Immutable audit trail of scrape attempts |
+| `launch_events` | Normalized, deduplicated launch records |
+| `event_attributions` | Many-to-many: links events to scrape sources |
+
+See [Database Schema](./database/schema.md) for complete documentation.
+
+### Adding a New Database Function
+
+#### Step 1: Plan the function signature
+
+```python
+async def get_launches_by_provider(
+    conn: aiosqlite.Connection,
+    provider: str,
+) -> list[LaunchEvent]:
+    """Get all launches from a specific provider."""
+```
+
+#### Step 2: Add to `db.py`
+
+```python
+# In src/openorbit/db.py
+
+async def get_launches_by_provider(
+    conn: aiosqlite.Connection,
+    provider: str,
+) -> list[LaunchEvent]:
+    """Retrieve all launches from a specific provider.
+    
+    Args:
+        conn: Database connection.
+        provider: Launch provider name (e.g., 'SpaceX').
+    
+    Returns:
+        List of LaunchEvent models.
+    """
+    query = """
+        SELECT 
+            e.*,
+            (SELECT COUNT(*) FROM event_attributions WHERE event_slug = e.slug) as attribution_count
+        FROM launch_events e
+        WHERE provider = ?
+        ORDER BY launch_date DESC
+    """
+    
+    async with conn.execute(query, (provider,)) as cursor:
+        rows = await cursor.fetchall()
+    
+    events = []
+    for row in rows:
+        events.append(LaunchEvent(...))  # Construct from row
+    
+    return events
+```
+
+#### Step 3: Add type annotations
+
+```python
+# Use Pydantic models for return types
+from openorbit.models.db import LaunchEvent
+
+# ✅ Correct
+async def get_launches(...) -> list[LaunchEvent]:
+    ...
+
+# ❌ Wrong
+async def get_launches(...) -> list:
+    ...
+```
+
+#### Step 4: Add comprehensive docstring
+
+```python
+async def get_launches_by_provider(
+    conn: aiosqlite.Connection,
+    provider: str,
+) -> list[LaunchEvent]:
+    """Retrieve all launches from a specific provider.
+
+    Args:
+        conn: Database connection.
+        provider: Launch provider name (e.g., 'SpaceX').
+
+    Returns:
+        List of LaunchEvent models ordered by date (newest first).
+
+    Raises:
+        aiosqlite.Error: If query fails.
+
+    Example:
+        async with get_db() as conn:
+            events = await get_launches_by_provider(conn, "SpaceX")
+    """
+```
+
+#### Step 5: Add tests
+
+Create `tests/test_db_launches.py`:
+
+```python
+"""Tests for launch-related database functions."""
+
+import pytest
+from datetime import datetime, UTC
+from openorbit.db import (
+    upsert_launch_event,
+    get_launches_by_provider,
+)
+from openorbit.models.db import LaunchEventCreate
+
+
+@pytest.mark.asyncio
+async def test_get_launches_by_provider_returns_matching_events(db: aiosqlite.Connection) -> None:
+    """Test that get_launches_by_provider returns only matching events."""
+    # Create events from different providers
+    spacex_event = LaunchEventCreate(
+        name="Falcon 9",
+        launch_date=datetime(2025, 1, 22, tzinfo=UTC),
+        launch_date_precision="day",
+        provider="SpaceX",
+        status="scheduled"
+    )
+    nasa_event = LaunchEventCreate(
+        name="Space Launch System",
+        launch_date=datetime(2025, 2, 22, tzinfo=UTC),
+        launch_date_precision="day",
+        provider="NASA",
+        status="scheduled"
+    )
+    
+    await upsert_launch_event(db, spacex_event)
+    await upsert_launch_event(db, nasa_event)
+    
+    # Query SpaceX launches
+    results = await get_launches_by_provider(db, "SpaceX")
+    
+    assert len(results) == 1
+    assert results[0].provider == "SpaceX"
+    assert results[0].name == "Falcon 9"
+```
+
+#### Step 6: Update documentation
+
+Add to [Database API Reference](./api/database.md):
+
+```markdown
+### `async get_launches_by_provider(conn, provider) → list[LaunchEvent]`
+
+Retrieve all launches from a specific provider.
+
+**Parameters:**
+...
+
+**Returns:** `list[LaunchEvent]` — Matching launches ordered by date (newest first)
+
+**Example:**
+...
+```
+
+### Adding a New Database Table
+
+#### Step 1: Create migration (or update schema.sql)
+
+Edit `src/openorbit/schema.sql`:
+
+```sql
+-- Add new table definition with IF NOT EXISTS
+CREATE TABLE IF NOT EXISTS my_new_table (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ...
+);
+
+-- Add indexes
+CREATE INDEX IF NOT EXISTS idx_my_new_table_field ON my_new_table(field);
+```
+
+#### Step 2: Create Pydantic models
+
+Edit `src/openorbit/models/db.py`:
+
+```python
+from pydantic import BaseModel, Field
+
+class MyNewModel(BaseModel):
+    """Model for my_new_table."""
+    id: int = Field(description="Unique ID")
+    field1: str = Field(description="Field description")
+    
+    class Config:
+        from_attributes = True  # ORM mode for aiosqlite.Row
+```
+
+#### Step 3: Add repository functions
+
+```python
+async def create_my_record(conn: aiosqlite.Connection, data: MyNewModel) -> int:
+    """Create a new record.
+    
+    Returns: Record ID
+    """
+    cursor = await conn.execute(
+        "INSERT INTO my_new_table (field1) VALUES (?)",
+        (data.field1,)
+    )
+    await conn.commit()
+    return cursor.lastrowid or -1
+```
+
+#### Step 4: Test and document
+
+- Add tests to `tests/test_db.py`
+- Update [Database Schema](./database/schema.md) with table definition
+- Update [Database API Reference](./api/database.md) with function signatures
+
+### Testing Database Code
+
+#### Fixture Setup
+
+Use the provided `db` fixture in `conftest.py`:
+
+```python
+@pytest.fixture
+async def db() -> AsyncIterator[aiosqlite.Connection]:
+    """In-memory database for testing."""
+    async with aiosqlite.connect(":memory:") as conn:
+        conn.row_factory = aiosqlite.Row
+        await init_db_schema(conn)
+        yield conn
+```
+
+#### Test Pattern
+
+```python
+@pytest.mark.asyncio
+async def test_function_does_something(db: aiosqlite.Connection) -> None:
+    """Test description following Given-When-Then."""
+    # Given: some initial state
+    await register_osint_source(db, name="NASA", ...)
+    
+    # When: we call a function
+    result = await get_osint_sources(db)
+    
+    # Then: we assert expected behavior
+    assert len(result) == 1
+    assert result[0].name == "NASA"
+```
+
+#### Coverage Requirements
+
+Minimum 80% line coverage for database code:
+
+```bash
+cd project/
+uv run pytest tests/test_db.py --cov=src/openorbit/db --cov-report=term-missing
+```
+
+---
+
 ## Adding a New API Endpoint
 
 ### Step 1: Create a route module

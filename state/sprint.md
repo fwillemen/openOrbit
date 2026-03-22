@@ -13,17 +13,17 @@ PO-001 (Bootstrap) → PO-002 (Database) → PO-003 (Scraper)
 ## In Progress
 | ID | Feature | Status |
 |----|---------|--------|
-| PO-002 | Core Database Schema & SQLite Persistence Layer | 🧪 Code Review Complete → Tester Phase |
 
 ## Pending (Blocked by Dependencies)
 | ID | Feature | Blocked By |
 |----|---------|------------|
-| PO-003 | OSINT Scraper — Space Agency Launch Schedules | PO-002 |
 
 ## Completed This Sprint
 | ID | Feature | Coverage | Delivered |
 |----|---------|----------|-----------|
 | PO-001 | Project Bootstrap, Repository Structure & Configuration Management | 80% | ✅ Architecture, Implementation, Code Review, Tests, Docs |
+| PO-002 | Core Database Schema & SQLite Persistence Layer | 87% | ✅ Architecture, Implementation, Code Review (1 fix cycle), Tests, Docs |
+| PO-003 | OSINT Scraper — Space Agency Launch Schedules | 93% | ✅ Architecture, Implementation, Code Review, Tests, Docs |
 
 ## Blocked
 | ID | Feature | Blocker |

@@ -249,6 +249,95 @@ Confidence score increases when multiple sources agree on the same event (matche
 
 ---
 
+### ADR-010: Async HTTP Scraper Pattern with Launch Library 2 API
+
+**Status:** Accepted  
+**Date:** 2026-03-22  
+**Sprint Item:** PO-003
+
+**Context:**  
+Sprint item PO-003 requires the first production OSINT scraper targeting public space agency launch schedules. The system must fetch external data, respect rate limits, store raw responses for audit, parse into normalized events, and handle idempotent re-runs. We need a pattern that can be extended for future scrapers (military schedules, social media, news sites). The scraper must integrate with the existing async architecture (FastAPI + aiosqlite) and repository functions.
+
+**Decision:**  
+Implement scraper pattern with these design choices:
+
+1. **Data Source:** Launch Library 2 API (https://ll.thespacedevs.com/2.2.0/)
+   - Well-documented, free tier, no authentication
+   - JSON responses (easier to parse than HTML)
+   - Rich metadata: provider, vehicle, location, status, precision timestamps
+   - Upcoming launches endpoint: `/launch/upcoming/`
+   - Pagination support via `?limit=N&offset=N`
+
+2. **Scraper Architecture:**
+   - Base class: `BaseScraper` (abstract protocol for future scrapers)
+   - Concrete implementation: `SpaceAgencyScraper` in `scrapers/space_agency.py`
+   - Use `httpx.AsyncClient` for async HTTP (matches FastAPI async architecture)
+   - Configurable timeout (30s default), max retries (3 default)
+   - Exponential backoff: 2^attempt seconds between retries
+
+3. **Rate Limiting:**
+   - Respect `SCRAPER_DELAY_SECONDS` config (default: 2s)
+   - Use `asyncio.sleep()` between requests
+   - Add User-Agent header identifying openOrbit
+
+4. **Parsing Strategy:**
+   - LL2 JSON → LaunchEventCreate Pydantic model
+   - Field mappings:
+     - `name` ← `name` (string)
+     - `launch_date` ← `net` (NET = "No Earlier Than" timestamp)
+     - `launch_date_precision` ← inferred from `net_precision` (0=year, 1=month, ..., 7=second)
+     - `provider` ← `launch_service_provider.name`
+     - `vehicle` ← `rocket.configuration.name`
+     - `location` ← `pad.location.name`
+     - `pad` ← `pad.name`
+     - `status` ← `status.name` (map "Go for Launch" → "scheduled", "Success" → "launched", etc.)
+     - `launch_type` ← default to "civilian" (LL2 doesn't distinguish military)
+
+5. **Error Handling:**
+   - Network errors: log to `raw_scrape_records` with error_message
+   - HTTP errors (4xx/5xx): log raw response + status code
+   - Parse errors: log warning, skip malformed record, continue
+   - All errors are non-fatal (scraper continues processing valid records)
+
+6. **Workflow:**
+   ```
+   1. Register source (if not exists): register_osint_source()
+   2. Fetch data: httpx.get() with timeout + retries
+   3. Log raw response: log_scrape_run() → scrape_record_id
+   4. Parse JSON: List[dict] → List[LaunchEventCreate]
+   5. For each event:
+      a. upsert_launch_event() → slug
+      b. add_attribution(slug, scrape_record_id)
+   6. Update source last_scraped: update_source_last_scraped()
+   7. Return summary: {total: N, new: N, updated: N}
+   ```
+
+7. **CLI Interface:**
+   - Runnable as: `uv run python -m openorbit.scrapers.space_agency`
+   - Uses `asyncio.run(main())` pattern
+   - Prints human-readable summary to stdout
+   - Non-zero exit code on critical failure (HTTP timeout, DB unavailable)
+
+8. **Extensibility (future-proofing):**
+   - `BaseScraper` protocol defines interface: `fetch()`, `parse()`, `run()`
+   - Config variables scoped by source: `SCRAPER_DELAY_SECONDS`, `SCRAPER_TIMEOUT_SECONDS`
+   - Future scrapers subclass BaseScraper and implement `parse()`
+   - Shared retry logic and rate limiting in base class
+
+**Consequences:**  
+- ✅ Clean, testable scraper pattern
+- ✅ Rich data source (LL2 API provides high-quality metadata)
+- ✅ Idempotent re-runs (upsert logic handles duplicates)
+- ✅ Full audit trail (raw responses stored before parsing)
+- ✅ Async-native (no event loop blocking)
+- ✅ Easy to extend for future sources
+- ✅ Respects rate limits (good netizen behavior)
+- ❌ LL2 API has rate limits (100 req/hour on free tier) — acceptable for v1
+- ❌ No military launch detection yet (requires different source)
+- ❌ Dependency on external API availability (mitigated by retry logic)
+
+---
+
 ## Template
 
 ### ADR-001: [Short title]

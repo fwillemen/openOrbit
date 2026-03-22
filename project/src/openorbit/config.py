@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./openorbit.db"
 
+    # Scraper settings
+    SCRAPER_DELAY_SECONDS: int = 2
+    SCRAPER_TIMEOUT_SECONDS: int = 30
+    SCRAPER_MAX_RETRIES: int = 3
+
 
 _settings: Settings | None = None
 

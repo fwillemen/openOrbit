@@ -7,8 +7,13 @@ import pytest
 from openorbit.config import Settings, get_settings
 
 
-def test_settings_load_defaults() -> None:
+def test_settings_load_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that settings load with sensible defaults."""
+    # Clear any environment variables that could interfere
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("VERSION", raising=False)
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    
     settings = Settings()
 
     assert settings.VERSION == "0.1.0"
