@@ -122,6 +122,17 @@ async def init_db_schema(conn: aiosqlite.Connection) -> None:
             # Column already exists — safe to ignore.
             pass
 
+        # Migration: add refresh_interval_hours to osint_sources if missing.
+        try:
+            await conn.execute(
+                "ALTER TABLE osint_sources ADD COLUMN refresh_interval_hours INTEGER NOT NULL DEFAULT 6"
+            )
+            await conn.commit()
+            logger.info("Migrated osint_sources: added refresh_interval_hours column")
+        except Exception:
+            # Column already exists — safe to ignore.
+            pass
+
         logger.info("Database schema initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize database schema: {e}")
@@ -209,6 +220,9 @@ async def get_osint_sources(
                     if row["last_scraped_at"]
                     else None
                 ),
+                refresh_interval_hours=int(row["refresh_interval_hours"])
+                if row["refresh_interval_hours"] is not None
+                else 6,
             )
         )
 
@@ -516,6 +530,8 @@ async def get_launch_events(
     provider: str | None = None,
     status: str | None = None,
     launch_type: str | None = None,
+    min_confidence: float | None = None,
+    cursor_id: int | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[LaunchEvent]:
@@ -525,11 +541,13 @@ async def get_launch_events(
         conn: Database connection.
         date_from: Filter events from this date (ISO 8601).
         date_to: Filter events to this date (ISO 8601).
-        provider: Filter by launch provider.
+        provider: Case-insensitive substring match on provider name.
         status: Filter by event status.
         launch_type: Filter by launch type.
+        min_confidence: Minimum confidence_score (inclusive).
+        cursor_id: Cursor-based pagination — return rows with rowid > cursor_id.
         limit: Maximum number of results (default: 100).
-        offset: Result offset for pagination (default: 0).
+        offset: Result offset for page-based pagination (default: 0).
 
     Returns:
         List of LaunchEvent models.
@@ -542,7 +560,7 @@ async def get_launch_events(
         FROM launch_events e
         WHERE 1=1
     """
-    params: list[str | int] = []
+    params: list[str | int | float] = []
 
     if date_from:
         query += " AND launch_date >= ?"
@@ -553,8 +571,8 @@ async def get_launch_events(
         params.append(date_to)
 
     if provider:
-        query += " AND provider = ?"
-        params.append(provider)
+        query += " AND LOWER(provider) LIKE LOWER(?)"
+        params.append(f"%{provider}%")
 
     if status:
         query += " AND status = ?"
@@ -564,8 +582,19 @@ async def get_launch_events(
         query += " AND launch_type = ?"
         params.append(launch_type)
 
-    query += " ORDER BY launch_date DESC LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
+    if min_confidence is not None:
+        query += " AND confidence_score >= ?"
+        params.append(min_confidence)
+
+    if cursor_id is not None:
+        # Cursor pagination: keyed on rowid ascending.
+        query += " AND e.rowid > ?"
+        params.append(cursor_id)
+        query += " ORDER BY e.rowid ASC LIMIT ?"
+        params.append(limit)
+    else:
+        query += " ORDER BY launch_date DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
     async with conn.execute(query, params) as cursor:
         rows = await cursor.fetchall()
@@ -603,6 +632,7 @@ async def count_launch_events(
     provider: str | None = None,
     status: str | None = None,
     launch_type: str | None = None,
+    min_confidence: float | None = None,
 ) -> int:
     """Count launch events matching the given filters.
 
@@ -613,15 +643,16 @@ async def count_launch_events(
         conn: Database connection.
         date_from: Filter events from this date (ISO 8601).
         date_to: Filter events to this date (ISO 8601).
-        provider: Filter by launch provider.
+        provider: Case-insensitive substring match on provider name.
         status: Filter by event status.
         launch_type: Filter by launch type.
+        min_confidence: Minimum confidence_score (inclusive).
 
     Returns:
         Total count of matching launch events.
     """
     query = "SELECT COUNT(*) FROM launch_events WHERE 1=1"
-    params: list[str | int] = []
+    params: list[str | int | float] = []
 
     if date_from:
         query += " AND launch_date >= ?"
@@ -632,8 +663,8 @@ async def count_launch_events(
         params.append(date_to)
 
     if provider:
-        query += " AND provider = ?"
-        params.append(provider)
+        query += " AND LOWER(provider) LIKE LOWER(?)"
+        params.append(f"%{provider}%")
 
     if status:
         query += " AND status = ?"
@@ -642,6 +673,10 @@ async def count_launch_events(
     if launch_type:
         query += " AND launch_type = ?"
         params.append(launch_type)
+
+    if min_confidence is not None:
+        query += " AND confidence_score >= ?"
+        params.append(min_confidence)
 
     async with conn.execute(query, params) as cursor:
         row = await cursor.fetchone()

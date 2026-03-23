@@ -108,7 +108,9 @@ async def test_list_launches_empty_db(client: AsyncClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["data"] == []
-    assert body["meta"] == {"total": 0, "page": 1, "per_page": 25}
+    assert body["meta"]["total"] == 0
+    assert body["meta"]["page"] == 1
+    assert body["meta"]["per_page"] == 25
 
 
 async def test_list_launches_with_seeded_data(seeded_client: AsyncClient) -> None:

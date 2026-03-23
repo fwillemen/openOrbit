@@ -24,6 +24,7 @@ class PaginationMeta(BaseModel):
     total: int
     page: int
     per_page: int
+    next_cursor: str | None = None
 
 
 class LaunchEventResponse(BaseModel):

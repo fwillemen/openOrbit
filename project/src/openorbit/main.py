@@ -17,6 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from openorbit.api import health_router, v1_router
 from openorbit.config import get_settings
 from openorbit.db import close_db, init_db
+from openorbit.middleware import RateLimiterMiddleware
+from openorbit.scheduler import start_scheduler, stop_scheduler
 
 
 def configure_logging() -> None:
@@ -77,12 +79,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting openOrbit API service")
 
     await init_db()
+    await start_scheduler()
     logger.info("Application startup complete")
 
     yield
 
     # Shutdown
     logger.info("Shutting down openOrbit API service")
+    await stop_scheduler()
     await close_db()
     logger.info("Application shutdown complete")
 
@@ -110,6 +114,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Rate limiting: 60 requests/minute per client IP.
+    app.add_middleware(RateLimiterMiddleware, calls=60, period=60)
 
     # Register API routes
     app.include_router(health_router)

@@ -28,6 +28,9 @@ class OSINTSource(BaseModel):
     last_scraped_at: datetime | None = Field(
         default=None, description="Last scrape timestamp"
     )
+    refresh_interval_hours: int = Field(
+        default=6, description="Scrape refresh interval in hours"
+    )
 
 
 class LaunchEventCreate(BaseModel):

@@ -863,3 +863,44 @@ from the build context to speed up builds and avoid leaking sensitive state file
 - ✅ Health check endpoint enables Docker-native liveness probing
 - ❌ SQLite is not suitable for multi-replica deployments; a future ADR will address
   migration to PostgreSQL if horizontal scaling is needed
+
+---
+
+## ADR-017 — APScheduler Background Refresh Jobs
+
+**Status:** Accepted  
+**Date:** 2025-01-01  
+**Sprint item:** PO-010
+
+### Context
+
+openOrbit scrapers previously ran only on demand. To provide continuously updated
+launch intelligence the system needs a background scheduler that periodically re-runs
+each scraper without manual intervention.
+
+### Decision
+
+Use **APScheduler 3.x with `AsyncIOScheduler`** to schedule one `interval` job per
+enabled OSINT source. The scheduler is started in the FastAPI lifespan context manager
+alongside `init_db()`, and shut down cleanly on application stop.
+
+Key design choices:
+
+- Each job is identified as `scraper_<source_id>` to prevent duplicate registration.
+- `max_instances=1` per job prevents overlapping runs of slow scrapers.
+- `misfire_grace_time=300 s` allows missed jobs to still run if the process was briefly
+  suspended.
+- Scraper failures are caught and logged; the scheduler never crashes on a single-job
+  error.
+- `refresh_interval_hours` is stored in `osint_sources` (default 6 h) and applied via
+  an idempotent `ALTER TABLE` migration in `init_db_schema()`.
+- A new `GET /v1/sources` endpoint exposes each source's `last_scraped_at`,
+  `event_count`, and `last_error` for observability.
+
+### Consequences
+
+- ✅ Continuous data freshness without external cron infrastructure
+- ✅ Scheduler lifecycle tied to the application (starts/stops with the server)
+- ✅ Per-source interval configurability stored in the DB
+- ❌ APScheduler job state is in-memory; missed jobs are lost on process restart
+  (acceptable for now; a persistent job store can be added if needed)

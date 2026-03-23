@@ -18,13 +18,11 @@ Group 5: PO-011 (depends on PO-008 + PO-009)
 
 ---
 
-## In Progress (Parallel Group 2)
+## In Progress
 
 | ID | Feature | Status |
 |----|---------|--------|
-| PO-005 | REST API — Core Launch Listing & Detail Endpoints | 🔨 Implementing |
-| PO-006 | OSINT Scraper — Commercial Launch Providers (Source 2) | 🔨 Implementing |
-| PO-007 | OSINT Scraper — Public NOTAMs & Maritime Advisories (Source 3) | 🔨 Implementing |
+| PO-008 | Multi-Source Aggregation, Deduplication & Entity Merging | 🔨 Implementing |
 
 ---
 
@@ -32,7 +30,6 @@ Group 5: PO-011 (depends on PO-008 + PO-009)
 
 | ID | Feature | Depends On |
 |----|---------|------------|
-| PO-008 | Multi-Source Aggregation, Deduplication & Entity Merging | PO-004, PO-005, PO-006, PO-007 |
 | PO-009 | Source Attribution, Confidence Scoring & Launch Type Classification | PO-008 |
 | PO-010 | APScheduler Background Refresh Jobs & Respectful Scraping | PO-005, PO-006, PO-007 |
 | PO-011 | Basic Inference & Multi-Source Correlation Layer | PO-008, PO-009 |
@@ -46,6 +43,9 @@ Group 5: PO-011 (depends on PO-008 + PO-009)
 | ID | Feature | Coverage |
 |----|---------|----------|
 | PO-004 | Data Normalization Pipeline & Canonical LaunchEvent Model | 100% normalizer, 96% model |
+| PO-005 | REST API — Core Launch Listing & Detail Endpoints | 93% launches router |
+| PO-006 | OSINT Scraper — Commercial Launch Providers (Source 2) | 84% commercial scraper |
+| PO-007 | OSINT Scraper — Public NOTAMs & Maritime Advisories (Source 3) | 100% notam_parser, 90% scraper |
 
 ---
 
