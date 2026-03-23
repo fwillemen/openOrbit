@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
+from datetime import UTC
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -177,57 +177,18 @@ class TestRateLimiterIpIsolation:
     """Each client IP has an independent rate-limit bucket."""
 
     async def test_different_ips_are_independent(self) -> None:
-        """Two different test app instances simulate independent IPs."""
-        import os
+        """Two different IPs share no rate-limit bucket."""
+        from datetime import datetime
 
-        import openorbit.config
+        limiter: RateLimiterMiddleware = RateLimiterMiddleware(
+            object(), calls=2, period=60
+        )
+        now = datetime.now(UTC).timestamp()
 
-        # Build two separate apps with their own RateLimiterMiddleware instances.
-        async def make_client(db_url: str) -> AsyncClient:
-            os.environ["DATABASE_URL"] = db_url
-            openorbit.config._settings = None
-            db_module._db_connection = None
-            await init_db()
-            app = create_app()
-            app.middleware_stack = None  # type: ignore[assignment]
-            from fastapi.middleware.cors import CORSMiddleware
-
-            limiter = RateLimiterMiddleware(app, calls=2, period=60)
-
-            # Build a minimal ASGI app wrapping only the limiter for clarity.
-            # We test via the RateLimiterMiddleware directly via separate instances.
-            return AsyncClient(
-                transport=ASGITransport(app=app),
-                base_url="http://test",
-            )
-
-        # Use the RateLimiterMiddleware directly to verify IP isolation.
-        limiter: RateLimiterMiddleware = RateLimiterMiddleware(object(), calls=2, period=60)
-
-        # Simulate requests from two different IPs.
-        call_count: dict[str, int] = {"ip1": 0, "ip2": 0}
-
-        class FakeRequest:
-            def __init__(self, ip: str) -> None:
-                self.client = type("C", (), {"host": ip})()
-
-            def __getattr__(self, name: str) -> object:
-                return None
-
-        # IP1 exhausts its quota
-        for _ in range(2):
-            limiter._requests["192.168.0.1"].append(
-                __import__("datetime").datetime.now(__import__("datetime").timezone.utc).timestamp()
-            )
-
-        # IP1 should be rate-limited
-        from datetime import datetime, timezone
-
-        now = datetime.now(timezone.utc).timestamp()
+        # Exhaust IP1's quota.
         limiter._requests["192.168.0.1"].append(now)
         limiter._requests["192.168.0.1"].append(now)
-        # IP1 at limit
         assert len(limiter._requests["192.168.0.1"]) >= 2
 
-        # IP2 still has a clean slate
+        # IP2 still has a clean slate.
         assert len(limiter._requests["192.168.0.2"]) == 0

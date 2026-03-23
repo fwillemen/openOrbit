@@ -7,7 +7,7 @@ Exceeding the limit returns HTTP 429 with Retry-After and X-RateLimit-* headers.
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -39,7 +39,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
             HTTP response, either the normal response or a 429 if rate limited.
         """
         client_ip = request.client.host if request.client else "unknown"
-        now = datetime.now(timezone.utc).timestamp()
+        now = datetime.now(UTC).timestamp()
         window = self._requests[client_ip]
 
         # Evict timestamps outside the current sliding window.

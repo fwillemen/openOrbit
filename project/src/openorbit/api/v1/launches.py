@@ -47,7 +47,9 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    sin_half_dphi = math.sin(dphi / 2)
+    sin_half_dlambda = math.sin(dlambda / 2)
+    a = sin_half_dphi**2 + math.cos(phi1) * math.cos(phi2) * sin_half_dlambda**2
     return _EARTH_RADIUS_KM * 2 * math.asin(math.sqrt(a))
 
 
@@ -133,6 +135,7 @@ def _build_launch_response(
         created_at=event.created_at,
         updated_at=event.updated_at,
         sources=sources,
+        inference_flags=event.inference_flags,
     )
 
 
@@ -149,10 +152,20 @@ async def list_launches(
         Query(),
     ] = None,
     min_confidence: Annotated[float | None, Query(ge=0.0, le=100.0)] = None,
-    location: Annotated[str | None, Query(description="lat,lon e.g. 28.573,-80.649")] = None,
+    has_inference_flag: Annotated[
+        str | None, Query(description="Filter by inference flag")
+    ] = None,
+    location: Annotated[
+        str | None, Query(description="lat,lon e.g. 28.573,-80.649")
+    ] = None,
     radius_km: Annotated[int | None, Query(ge=1)] = None,
-    cursor: Annotated[str | None, Query(description="Opaque cursor for cursor-based pagination")] = None,
-    limit: Annotated[int, Query(ge=1, le=100, description="Results per page for cursor pagination")] = 25,
+    cursor: Annotated[
+        str | None, Query(description="Opaque cursor for cursor-based pagination")
+    ] = None,
+    limit: Annotated[
+        int,
+        Query(ge=1, le=100, description="Results per page for cursor pagination"),
+    ] = 25,
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> PaginatedLaunchResponse:
@@ -169,6 +182,7 @@ async def list_launches(
         launch_type: Filter by launch type.
         status: Filter by launch status.
         min_confidence: Exclude events below this confidence score.
+        has_inference_flag: Filter to events containing this inference flag.
         location: Centre point for proximity search (format: ``lat,lon``).
         radius_km: Radius in km for proximity search (requires ``location``).
         cursor: Opaque cursor token for cursor-based pagination.
@@ -192,7 +206,10 @@ async def list_launches(
         if geo_center is None:
             raise HTTPException(
                 status_code=400,
-                detail={"error": "invalid_location", "message": "location must be 'lat,lon'"},
+                detail={
+                    "error": "invalid_location",
+                    "message": "location must be 'lat,lon'",
+                },
             )
 
     # Decode cursor for cursor-based pagination.
@@ -203,7 +220,10 @@ async def list_launches(
         if cursor_id is None:
             raise HTTPException(
                 status_code=400,
-                detail={"error": "invalid_cursor", "message": "cursor token is invalid"},
+                detail={
+                    "error": "invalid_cursor",
+                    "message": "cursor token is invalid",
+                },
             )
 
     # Determine page size and offset.
@@ -222,6 +242,7 @@ async def list_launches(
                 status=status,
                 launch_type=launch_type,
                 min_confidence=min_confidence,
+                has_inference_flag=has_inference_flag,
                 limit=10_000,
                 offset=0,
             )
@@ -258,6 +279,7 @@ async def list_launches(
                 status=status,
                 launch_type=launch_type,
                 min_confidence=min_confidence,
+                has_inference_flag=has_inference_flag,
             )
             page_events = await get_launch_events(
                 conn,
@@ -267,6 +289,7 @@ async def list_launches(
                 status=status,
                 launch_type=launch_type,
                 min_confidence=min_confidence,
+                has_inference_flag=has_inference_flag,
                 cursor_id=cursor_id,
                 limit=page_size,
                 offset=db_offset,
@@ -280,9 +303,13 @@ async def list_launches(
     data = [_build_launch_response(e) for e in page_events]
 
     if using_cursor:
-        meta = PaginationMeta(total=total, page=1, per_page=page_size, next_cursor=next_cursor)
+        meta = PaginationMeta(
+            total=total, page=1, per_page=page_size, next_cursor=next_cursor
+        )
     else:
-        meta = PaginationMeta(total=total, page=page, per_page=per_page, next_cursor=next_cursor)
+        meta = PaginationMeta(
+            total=total, page=page, per_page=per_page, next_cursor=next_cursor
+        )
 
     return PaginatedLaunchResponse(data=data, meta=meta)
 

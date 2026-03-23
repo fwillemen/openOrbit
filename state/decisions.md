@@ -904,3 +904,107 @@ Key design choices:
 - ✅ Per-source interval configurability stored in the DB
 - ❌ APScheduler job state is in-memory; missed jobs are lost on process restart
   (acceptable for now; a persistent job store can be added if needed)
+
+---
+
+## ADR-019: Rate Limiting, Cursor Pagination & Advanced Filtering
+
+**Date:** 2025-07-15  
+**Status:** Accepted  
+**Sprint item:** PO-013
+
+### Context
+
+The `/v1/launches` API lacked request throttling (no abuse protection), offered only
+page-based pagination (OFFSET-heavy at scale), and provided only exact-match filtering
+on `provider`. Advanced data-consumers requested fuzzy provider search, confidence-score
+gating, and proximity search.
+
+### Decision
+
+1. **In-memory sliding-window rate limiter** (`openorbit.middleware.rate_limiter`):
+   - Implemented as a Starlette `BaseHTTPMiddleware`, keyed by client IP.
+   - Default: 60 requests / 60 s window. Configurable at construction time.
+   - Exceeding the limit returns HTTP 429 with `Retry-After` and `X-RateLimit-*` headers.
+   - Every successful response also carries `X-RateLimit-Limit` and
+     `X-RateLimit-Remaining` for client-side back-off.
+
+2. **Cursor-based pagination** alongside existing page-based:
+   - `?cursor=<token>&limit=N` activates cursor mode; `?page=N&per_page=N` uses OFFSET.
+   - Cursor is the URL-safe base64 encoding of the last SQLite `rowid` seen.
+   - Cursor mode uses `WHERE rowid > cursor_id ORDER BY rowid ASC` — no OFFSET scan.
+   - Response `meta.next_cursor` is populated when more rows remain.
+
+3. **Advanced filters**:
+   - `?provider=<fuzzy>` upgraded to `LOWER(provider) LIKE LOWER('%<value>%')`.
+   - `?min_confidence=<float>` maps to `confidence_score >= ?` in SQL.
+   - `?location=<lat,lon>&radius_km=<int>` applies Haversine filtering in Python
+     (events without parseable lat/lon in their `location` field are excluded).
+
+### Key design choices
+
+- Rate limiter uses a `deque` per IP for O(1) eviction at window boundary.
+- `slowapi` was rejected in favour of a zero-dependency in-memory approach; suitable
+  for single-process deployments. A Redis-backed limiter should be added before
+  horizontal scaling.
+- Proximity filtering is Python-side because SQLite has no geo functions; acceptable
+  for the current dataset size. A PostGIS migration would move this to SQL.
+- `PaginationMeta.next_cursor` is `None` on page-based responses — fully
+  backward-compatible.
+
+### Consequences
+
+- ✅ API is protected against request floods per IP
+- ✅ Cursor pagination scales to large datasets without OFFSET degradation
+- ✅ `provider` filter is user-friendly (partial, case-insensitive)
+- ✅ Confidence and proximity filters enable quality-gated, location-aware queries
+- ❌ In-memory rate-limit state is lost on restart / not shared across processes
+- ❌ Proximity filter only works for events whose `location` field stores `"lat,lon"` text
+
+---
+
+## ADR-020 — Inference & Multi-Source Correlation Layer
+
+**Status:** Accepted  
+**Date:** 2025-01-01  
+**Sprint item:** PO-011
+
+### Context
+
+openOrbit aggregates launch events from multiple OSINT sources. With multiple data
+points available, the system can apply inference rules to detect patterns and increase
+confidence in events. This forms the foundation of Phase 3 of the project roadmap.
+
+### Decision
+
+Implement an `InferenceEngine` class in `openorbit.pipeline.inference` that applies
+three deterministic heuristic rules to annotate launch events stored in the database:
+
+1. **`multi_source_corroboration`** — When an event is attributed to ≥2 distinct OSINT
+   sources, add this flag and increase `confidence_score` by 20 points (capped at 100).
+2. **`pad_reuse_pattern`** — When another event from the same launch pad occurred within
+   the preceding 30 days, flag the event as exhibiting pad reuse behaviour.
+3. **`notam_cluster`** — When ≥2 NOTAM-sourced events exist within a ±3-day window
+   around the event, flag it as part of a NOTAM cluster signal.
+
+Results are stored in a new `inference_flags` (JSON TEXT, nullable) column on
+`launch_events`, added via an idempotent `ALTER TABLE` migration in `init_db_schema()`.
+
+The engine is **idempotent**: re-running it on the same data produces the same flags
+without duplication or confidence drift.
+
+### API Impact
+
+- `GET /v1/launches` — accepts `?has_inference_flag=<flag>` to filter by flag.
+- `GET /v1/launches/{slug}` — response includes `inference_flags` array.
+
+### Consequences
+
+- ✅ Deterministic, auditable inference rules — no ML black box
+- ✅ Idempotent engine safe to run on scheduler cadence
+- ✅ DB migration is backwards-compatible (nullable column, try/except guard)
+- ✅ API filtering enables flag-specific dashboards and alerting
+- ❌ NOTAM clustering is time-window only; does not account for geographic proximity
+  (deferred to a future ADR once lat/lon parsing is standardised)
+- ❌ Confidence adjustment is additive and uncapped per rule; future work could weight
+  rules based on source reliability

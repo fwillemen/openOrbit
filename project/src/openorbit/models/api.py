@@ -45,6 +45,7 @@ class LaunchEventResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     sources: list[AttributionResponse] = []
+    inference_flags: list[str] = []
 
 
 class PaginatedLaunchResponse(BaseModel):

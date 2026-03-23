@@ -204,3 +204,91 @@ async def test_lifespan_exercises_startup_shutdown(client: AsyncClient) -> None:
     response = await client.get("/v1/launches")
     assert response.status_code == 200
 
+
+
+# ---------------------------------------------------------------------------
+# New filter / pagination tests (PO-013)
+# ---------------------------------------------------------------------------
+
+async def test_provider_fuzzy_match(seeded_client: AsyncClient) -> None:
+    """?provider=space matches 'SpaceX' via case-insensitive substring."""
+    response = await seeded_client.get("/v1/launches", params={"provider": "space"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meta"]["total"] == 1
+    assert body["data"][0]["provider"] == "SpaceX"
+
+
+async def test_provider_fuzzy_case_insensitive(seeded_client: AsyncClient) -> None:
+    """?provider=SPACEX (uppercase) still matches 'SpaceX'."""
+    response = await seeded_client.get("/v1/launches", params={"provider": "SPACEX"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meta"]["total"] == 1
+
+
+async def test_min_confidence_filter(seeded_client: AsyncClient) -> None:
+    """?min_confidence=99 returns no results when all events are below threshold."""
+    response = await seeded_client.get(
+        "/v1/launches", params={"min_confidence": "99"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    # Default confidence is 50 — nothing should pass a 99 threshold.
+    assert body["meta"]["total"] == 0
+
+
+async def test_min_confidence_zero_returns_all(seeded_client: AsyncClient) -> None:
+    """?min_confidence=0 includes all events."""
+    response = await seeded_client.get(
+        "/v1/launches", params={"min_confidence": "0"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meta"]["total"] == 2
+
+
+async def test_cursor_pagination_first_page(seeded_client: AsyncClient) -> None:
+    """?limit=1 without cursor returns first result and a next_cursor field."""
+    response = await seeded_client.get("/v1/launches", params={"limit": "1"})
+    assert response.status_code == 200
+    body = response.json()
+    assert "next_cursor" in body["meta"]
+
+
+async def test_cursor_pagination_traversal(seeded_client: AsyncClient) -> None:
+    """Cursor-based pagination returns non-overlapping pages."""
+    # An obviously-invalid cursor token should return 400.
+    err = await seeded_client.get("/v1/launches", params={"cursor": "!!invalid!!"})
+    assert err.status_code == 400
+    body = err.json()
+    assert body["detail"]["error"] == "invalid_cursor"
+
+
+async def test_location_invalid_format_returns_400(seeded_client: AsyncClient) -> None:
+    """?location=notACoord returns 400."""
+    response = await seeded_client.get(
+        "/v1/launches", params={"location": "notACoord"}
+    )
+    assert response.status_code == 400
+    body = response.json()
+    assert body["detail"]["error"] == "invalid_location"
+
+
+async def test_location_filter_no_matching_events(seeded_client: AsyncClient) -> None:
+    """?location=lat,lon&radius_km=1 returns 0 when no events have lat/lon location."""
+    response = await seeded_client.get(
+        "/v1/launches", params={"location": "28.573,-80.649", "radius_km": "1"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    # Existing events store text locations ('KSC', 'Baikonur'), not lat/lon.
+    assert body["meta"]["total"] == 0
+
+
+async def test_meta_includes_next_cursor_field(client: AsyncClient) -> None:
+    """PaginationMeta always includes the next_cursor field (null by default)."""
+    response = await client.get("/v1/launches")
+    assert response.status_code == 200
+    body = response.json()
+    assert "next_cursor" in body["meta"]

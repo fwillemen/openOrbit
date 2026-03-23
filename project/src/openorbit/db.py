@@ -14,6 +14,7 @@ Repository Pattern:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import AsyncIterator
@@ -129,6 +130,17 @@ async def init_db_schema(conn: aiosqlite.Connection) -> None:
             )
             await conn.commit()
             logger.info("Migrated osint_sources: added refresh_interval_hours column")
+        except Exception:
+            # Column already exists — safe to ignore.
+            pass
+
+        # Migration: add inference_flags to launch_events if missing.
+        try:
+            await conn.execute(
+                "ALTER TABLE launch_events ADD COLUMN inference_flags TEXT"
+            )
+            await conn.commit()
+            logger.info("Migrated launch_events: added inference_flags column")
         except Exception:
             # Column already exists — safe to ignore.
             pass
@@ -531,6 +543,7 @@ async def get_launch_events(
     status: str | None = None,
     launch_type: str | None = None,
     min_confidence: float | None = None,
+    has_inference_flag: str | None = None,
     cursor_id: int | None = None,
     limit: int = 100,
     offset: int = 0,
@@ -545,6 +558,7 @@ async def get_launch_events(
         status: Filter by event status.
         launch_type: Filter by launch type.
         min_confidence: Minimum confidence_score (inclusive).
+        has_inference_flag: Filter to events containing this flag in inference_flags.
         cursor_id: Cursor-based pagination — return rows with rowid > cursor_id.
         limit: Maximum number of results (default: 100).
         offset: Result offset for page-based pagination (default: 0).
@@ -586,6 +600,10 @@ async def get_launch_events(
         query += " AND confidence_score >= ?"
         params.append(min_confidence)
 
+    if has_inference_flag:
+        query += " AND inference_flags LIKE ?"
+        params.append(f'%"{has_inference_flag}"%')
+
     if cursor_id is not None:
         # Cursor pagination: keyed on rowid ascending.
         query += " AND e.rowid > ?"
@@ -618,6 +636,7 @@ async def get_launch_events(
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
                 attribution_count=row["attribution_count"],
+                inference_flags=json.loads(row["inference_flags"] or "[]"),
             )
         )
 
@@ -633,6 +652,7 @@ async def count_launch_events(
     status: str | None = None,
     launch_type: str | None = None,
     min_confidence: float | None = None,
+    has_inference_flag: str | None = None,
 ) -> int:
     """Count launch events matching the given filters.
 
@@ -647,6 +667,7 @@ async def count_launch_events(
         status: Filter by event status.
         launch_type: Filter by launch type.
         min_confidence: Minimum confidence_score (inclusive).
+        has_inference_flag: Filter to events containing this flag in inference_flags.
 
     Returns:
         Total count of matching launch events.
@@ -677,6 +698,10 @@ async def count_launch_events(
     if min_confidence is not None:
         query += " AND confidence_score >= ?"
         params.append(min_confidence)
+
+    if has_inference_flag:
+        query += " AND inference_flags LIKE ?"
+        params.append(f'%"{has_inference_flag}"%')
 
     async with conn.execute(query, params) as cursor:
         row = await cursor.fetchone()
@@ -731,6 +756,7 @@ async def get_launch_event_by_slug(
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
         attribution_count=row["attribution_count"],
+        inference_flags=json.loads(row["inference_flags"] or "[]"),
     )
 
 
@@ -780,10 +806,38 @@ async def search_launch_events(
                 created_at=datetime.fromisoformat(row["created_at"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
                 attribution_count=row["attribution_count"],
+                inference_flags=json.loads(row["inference_flags"] or "[]"),
             )
         )
 
     return events
+
+
+# =============================================================================
+# Inference Flags
+# =============================================================================
+
+
+async def update_inference_flags(
+    conn: aiosqlite.Connection,
+    slug: str,
+    flags: list[str],
+) -> None:
+    """Persist inference flags for a launch event.
+
+    Args:
+        conn: Database connection.
+        slug: Event slug to update.
+        flags: List of inference flag strings to store (replaces existing).
+    """
+    import json as _json
+
+    await conn.execute(
+        "UPDATE launch_events SET inference_flags = ? WHERE slug = ?",
+        (_json.dumps(flags), slug),
+    )
+    await conn.commit()
+    logger.debug(f"Updated inference_flags for '{slug}': {flags}")
 
 
 # =============================================================================
