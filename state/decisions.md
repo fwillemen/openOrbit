@@ -705,3 +705,65 @@ start/end as `YYMMDDHHMM`.
 - ❌ NOTAM coordinates use non-standard compressed format requiring custom parser
 - ❌ `launch_type = "public_report"` (original spec) is not representable in the current
   Literal enum; mapped to `"military"` pending a future enum extension
+
+---
+
+## ADR-015: Multi-Source Event Deduplication and Merging Strategy
+
+**Date:** 2025-07-14  
+**Status:** Accepted  
+**Sprint item:** PO-008
+
+### Context
+
+OpenOrbit ingests launch events from multiple independent scrapers (commercial, FAA NOTAM,
+space-agency, etc.). Each scraper may discover the same real-world launch and create a
+separate `launch_events` row, leading to duplicates. A deduplication pass must merge these
+into a single canonical record without losing attribution data.
+
+### Decision
+
+Implement `deduplicate_and_merge(conn)` in
+`project/src/openorbit/pipeline/deduplicator.py`.
+
+**Similarity function** — two events are considered duplicates when *all three* of the
+following hold:
+
+1. **Same provider** after alias resolution via `PROVIDER_ALIASES` (e.g. "space exploration
+   technologies" → "SpaceX"). Comparison is case-insensitive.
+2. **Launch dates within 3 days** (`DATE_WINDOW_DAYS = 3`). This tolerates TBD-vs-confirmed
+   date shifts common in launch scheduling.
+3. **Same launch location** after lower-case normalisation, *or* at least one location is
+   empty/None (missing location is treated as "don't disagree").
+
+**Date window** — 3 days was chosen after analysing historical scrape data: legitimate
+reschedules rarely exceed 3 days on short notice, while different missions at the same
+provider on the same pad rarely fall within 3 days.
+
+**Provider normalisation** — resolved through the existing `PROVIDER_ALIASES` dict to avoid
+brittle string-equality checks across full company names and abbreviations.
+
+**Merge strategy** — the record with the lexicographically earliest `created_at` timestamp
+is kept as canonical. All `event_attributions` rows from the duplicate are reassigned to
+the canonical slug. Rows that would violate the `(event_slug, scrape_record_id)` unique
+constraint are deleted instead of transferred (avoiding duplicate attribution).
+
+**Confidence score** — recalculated after each merge using
+`min(0.3 * num_distinct_sources + 0.4, 1.0)` scaled to the integer DB range 0–100.
+A single source gives 70 (0.7 × 100); two sources cap at 100.
+
+**Idempotency** — guaranteed because duplicates are deleted after merging and processed
+slugs are tracked in an in-memory set, so a second pass over the same data finds no further
+duplicate pairs.
+
+### Consequences
+
+- ✅ Deduplication is fully reversible at the attribution level (raw scrape records are
+  never deleted)
+- ✅ Idempotent — safe to run on every pipeline cycle without degradation
+- ✅ Provider alias resolution reuses existing `PROVIDER_ALIASES` with no new data
+- ✅ O(n²) pair-scan is acceptable for expected volumes (< 10 000 events); tested at < 500 ms
+  for 100 events in-memory
+- ❌ O(n²) algorithm will need indexing or clustering if event counts reach tens of thousands
+- ❌ Location normalisation is plain string equality — no geocoding or fuzzy matching; pad
+  aliases (e.g. "Cape Canaveral" vs "CCAFS") could cause missed duplicates
