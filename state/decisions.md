@@ -767,3 +767,99 @@ duplicate pairs.
 - ❌ O(n²) algorithm will need indexing or clustering if event counts reach tens of thousands
 - ❌ Location normalisation is plain string equality — no geocoding or fuzzy matching; pad
   aliases (e.g. "Cape Canaveral" vs "CCAFS") could cause missed duplicates
+
+---
+
+## ADR-016: Launch Type Classifier Design
+
+**Date:** 2025-07-14
+**Status:** Accepted
+**Sprint Item:** PO-009
+
+### Context
+
+OpenOrbit ingests launch events from multiple OSINT sources with varying levels of detail.
+Some launches are civilian commercial missions, others are government/military, and some
+are NOTAM-flagged missile-related events that should be tagged as `public_report` for
+downstream filtering. A lightweight, deterministic classifier was needed that could run
+in the pipeline without I/O or external lookups.
+
+### Decision
+
+Implement `pipeline/classifier.py` as a **pure function** `classify_launch_type()` with
+a fixed priority chain:
+
+1. **Hint passthrough** — if the scraper already determined a valid `launch_type`, accept it.
+2. **MISSILE keyword** — if NOTAM keywords include `MISSILE` (case-insensitive), classify
+   as `public_report`. This models the real-world pattern where NOTAM text flags missile
+   tests explicitly.
+3. **Provider match** — if the provider name (lowercased) contains any string from the
+   `MILITARY_PROGRAMS` set in `pipeline/military_programs.py`, classify as `military`.
+4. **Source name heuristic** — if the OSINT source name contains "military" or "dod",
+   classify as `military`.
+5. **Default** — `civilian`.
+
+The `MILITARY_PROGRAMS` set in `military_programs.py` contains only **publicly reported**
+program names (NRO, DoD, USSF, etc.) — no classified information.
+
+### Rationale
+
+- **Pure function** — no I/O, no DB calls; trivially unit-testable and composable.
+- **Priority order is explicit and auditable** — hint > keyword > provider > source > default.
+- **Extensible** — adding a new military program requires one set entry; no code changes.
+- **`launch_type` filter** — `GET /v1/launches?launch_type=` already supported by the
+  existing DB query layer; the classifier populates the field at ingest time.
+
+### Consequences
+
+- ✅ 100% unit test coverage on classifier module (15 scenarios tested)
+- ✅ Zero external dependencies — purely stdlib + project modules
+- ✅ Adding programs requires only updating `military_programs.py`
+- ❌ Keyword matching is exact (`MISSILE` only) — fuzzy or NLP-based matching deferred
+- ❌ Classifier runs at ingest time; existing events in DB are not back-filled automatically
+
+---
+
+## ADR-018: Docker Deployment Strategy (PO-012)
+
+**Date:** 2025-07-18
+**Status:** Accepted
+
+### Context
+
+openOrbit needs to be deployable as a containerised service so that operators can run the
+API in isolated, reproducible environments without manual Python setup.
+
+### Decision
+
+Use a **multi-stage Docker build** with `python:3.12-slim` as the base image for both stages:
+
+- **Builder stage** — installs `uv` and resolves all runtime dependencies into a `.venv`
+  via `uv sync --no-dev`. The project source is then copied into the stage.
+- **Runtime stage** — copies only the `.venv` and `src/` from the builder; no build tools
+  or caches are included, keeping the image lean (target < 300 MB).
+
+The container process runs as a dedicated non-root `appuser` / `appgroup` to satisfy
+least-privilege requirements.
+
+A `docker-compose.yml` is provided for local development and simple single-node deployments.
+It mounts `./data` as a volume so the SQLite database persists across restarts.
+
+A `.dockerignore` excludes `state/`, `.git/`, test fixtures, caches, and documentation
+from the build context to speed up builds and avoid leaking sensitive state files.
+
+### Alternatives Considered
+
+- **Single-stage build** — simpler but includes build tools (uv, pip) in the final image,
+  increasing size and attack surface. Rejected.
+- **Alpine base** — smaller base image, but binary wheel compatibility issues with several
+  dependencies (pydantic-core, uvicorn). Rejected in favour of slim.
+
+### Consequences
+
+- ✅ Reproducible, isolated deployments with a single `docker build` command
+- ✅ Non-root runtime satisfies common security policies
+- ✅ Data persists via volume mount; no data loss on container restart
+- ✅ Health check endpoint enables Docker-native liveness probing
+- ❌ SQLite is not suitable for multi-replica deployments; a future ADR will address
+  migration to PostgreSQL if horizontal scaling is needed
