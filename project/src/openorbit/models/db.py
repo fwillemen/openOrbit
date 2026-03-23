@@ -76,6 +76,9 @@ class LaunchEvent(LaunchEventCreate):
     attribution_count: int = Field(
         default=0, description="Number of sources confirming this event"
     )
+    inference_flags: list[str] = Field(
+        default_factory=list, description="Inference rule flags applied to this event"
+    )
 
 
 class EventAttribution(BaseModel):

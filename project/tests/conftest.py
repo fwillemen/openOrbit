@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -27,7 +28,7 @@ async def async_client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Manually trigger lifespan startup since ASGITransport v0.27+ requires it
-        from openorbit.db import init_db, close_db
+        from openorbit.db import close_db, init_db
         await init_db()
         try:
             yield client

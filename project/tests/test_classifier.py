@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from openorbit.pipeline.classifier import LaunchType, classify_launch_type
+from openorbit.pipeline.classifier import classify_launch_type
 
 
 # ---------------------------------------------------------------------------
