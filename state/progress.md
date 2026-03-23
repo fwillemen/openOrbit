@@ -165,6 +165,26 @@
 ---
 
 ### Current Activity
-✅ Sprint 1 complete — ready for retrospective analysis
+✅ Sprint 1 complete — retrospective analysis complete
+
+---
+
+## Sprint 1 — Retrospective
+**Date:** 2026-03-22  
+**See:** `state/retrospective.md`  
+**Key findings:**
+- ✅ All 3 items delivered with 87% overall coverage (50 tests passing)
+- PO-002 had 1 fix cycle (bare `assert` anti-pattern in 5 functions) — caught by code reviewer, fixed in 10min
+- `openorbit.main` lifespan coverage gap at 54% — requires ASGI integration test
+- SM crashed at rate limit during PO-003 — recovery successful but highlighted need for per-step DB checkpointing
+- Overall velocity excellent: ~2h 45min for 3 items, minimal rework
+
+**Top improvements for Sprint 2:**
+1. Add SM checkpoint writes after every sub-agent delegation (enables crash recovery)
+2. Add ASGI lifespan integration test to close `main.py` coverage gap
+3. Update programmer instructions to forbid bare `assert` in production code
+4. Enable DB logging in code-reviewer for structured metrics
+
+**Next sprint focus:** PO-004 (REST API endpoints) — build on the solid DB + scraper foundation now in place.
 
 ---

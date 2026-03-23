@@ -8,7 +8,7 @@ Repository Pattern:
   update_source_last_scraped
 - Scrape logging: log_scrape_run
 - Event management: upsert_launch_event, get_launch_events,
-  get_launch_event_by_slug, search_launch_events
+  count_launch_events, get_launch_event_by_slug, search_launch_events
 - Attribution: add_attribution, get_event_attributions
 """
 
@@ -18,7 +18,7 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -110,6 +110,17 @@ async def init_db_schema(conn: aiosqlite.Connection) -> None:
         # Execute schema (all statements use IF NOT EXISTS, so it's idempotent)
         await conn.executescript(schema_sql)
         await conn.commit()
+
+        # Migration: add parse_error column if it doesn't exist yet.
+        try:
+            await conn.execute(
+                "ALTER TABLE raw_scrape_records ADD COLUMN parse_error INTEGER NOT NULL DEFAULT 0"
+            )
+            await conn.commit()
+            logger.info("Migrated raw_scrape_records: added parse_error column")
+        except Exception:
+            # Column already exists — safe to ignore.
+            pass
 
         logger.info("Database schema initialized successfully")
     except Exception as e:
@@ -525,6 +536,7 @@ async def get_launch_events(
     """
     query = """
         SELECT 
+            e.rowid as id,
             e.*,
             (SELECT COUNT(*) FROM event_attributions WHERE event_slug = e.slug) as attribution_count
         FROM launch_events e
@@ -562,6 +574,7 @@ async def get_launch_events(
     for row in rows:
         events.append(
             LaunchEvent(
+                id=row["id"],
                 slug=row["slug"],
                 name=row["name"],
                 launch_date=datetime.fromisoformat(row["launch_date"]),
@@ -582,6 +595,63 @@ async def get_launch_events(
     return events
 
 
+async def count_launch_events(
+    conn: aiosqlite.Connection,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    provider: str | None = None,
+    status: str | None = None,
+    launch_type: str | None = None,
+) -> int:
+    """Count launch events matching the given filters.
+
+    Mirrors the filter logic of get_launch_events() but returns a total count
+    for use in pagination metadata.
+
+    Args:
+        conn: Database connection.
+        date_from: Filter events from this date (ISO 8601).
+        date_to: Filter events to this date (ISO 8601).
+        provider: Filter by launch provider.
+        status: Filter by event status.
+        launch_type: Filter by launch type.
+
+    Returns:
+        Total count of matching launch events.
+    """
+    query = "SELECT COUNT(*) FROM launch_events WHERE 1=1"
+    params: list[str | int] = []
+
+    if date_from:
+        query += " AND launch_date >= ?"
+        params.append(date_from)
+
+    if date_to:
+        query += " AND launch_date <= ?"
+        params.append(date_to)
+
+    if provider:
+        query += " AND provider = ?"
+        params.append(provider)
+
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+
+    if launch_type:
+        query += " AND launch_type = ?"
+        params.append(launch_type)
+
+    async with conn.execute(query, params) as cursor:
+        row = await cursor.fetchone()
+
+    if row is None:
+        return 0
+    count = row[0]
+    return int(count) if count is not None else 0
+
+
 async def get_launch_event_by_slug(
     conn: aiosqlite.Connection,
     slug: str,
@@ -597,6 +667,7 @@ async def get_launch_event_by_slug(
     """
     query = """
         SELECT 
+            e.rowid as id,
             e.*,
             (SELECT COUNT(*) FROM event_attributions WHERE event_slug = e.slug) as attribution_count
         FROM launch_events e
@@ -610,6 +681,7 @@ async def get_launch_event_by_slug(
         return None
 
     return LaunchEvent(
+        id=row["id"],
         slug=row["slug"],
         name=row["name"],
         launch_date=datetime.fromisoformat(row["launch_date"]),
@@ -736,7 +808,7 @@ async def add_attribution(
         return existing_id
 
     # Create new attribution
-    attributed_at = datetime.now(timezone.utc).isoformat()
+    attributed_at = datetime.now(UTC).isoformat()
     cursor = await conn.execute(
         """INSERT INTO event_attributions (event_slug, scrape_record_id, attributed_at)
         VALUES (?, ?, ?)""",
@@ -772,7 +844,7 @@ async def add_attribution(
     confidence_score = _calculate_confidence_score(attribution_count, precision)
     await conn.execute(
         "UPDATE launch_events SET confidence_score = ?, updated_at = ? WHERE slug = ?",
-        (confidence_score, datetime.now(timezone.utc).isoformat(), event_slug),
+        (confidence_score, datetime.now(UTC).isoformat(), event_slug),
     )
     await conn.commit()
 
@@ -818,3 +890,41 @@ async def get_event_attributions(
         )
 
     return attributions
+
+
+# =============================================================================
+# Parse-Error Flagging
+# =============================================================================
+
+
+async def flag_parse_error(
+    scrape_record_id: int,
+    conn: aiosqlite.Connection | None = None,
+) -> None:
+    """Mark a raw_scrape_records row as having a parse error.
+
+    Args:
+        scrape_record_id: PK of the raw_scrape_records row to flag.
+        conn: Optional connection override; falls back to the global connection.
+
+    Raises:
+        RuntimeError: If no database connection is available.
+        ValueError: If scrape_record_id does not exist.
+    """
+    connection = conn if conn is not None else _db_connection
+    if connection is None:
+        raise RuntimeError("Database not initialized. Call init_db() first.")
+
+    async with connection.execute(
+        "SELECT 1 FROM raw_scrape_records WHERE id = ?", (scrape_record_id,)
+    ) as cursor:
+        if not await cursor.fetchone():
+            raise ValueError(f"scrape_record_id {scrape_record_id!r} not found")
+
+    await connection.execute(
+        "UPDATE raw_scrape_records SET parse_error = 1 WHERE id = ?",
+        (scrape_record_id,),
+    )
+    await connection.commit()
+    logger.info(f"Flagged scrape record {scrape_record_id} as parse_error")
+

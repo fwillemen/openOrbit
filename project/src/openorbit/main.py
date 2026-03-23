@@ -14,7 +14,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from openorbit.api import health_router
+from openorbit.api import health_router, v1_router
 from openorbit.config import get_settings
 from openorbit.db import close_db, init_db
 
@@ -113,6 +113,7 @@ def create_app() -> FastAPI:
 
     # Register API routes
     app.include_router(health_router)
+    app.include_router(v1_router)
 
     return app
 

@@ -65,6 +65,7 @@ class LaunchEvent(LaunchEventCreate):
     Extends LaunchEventCreate with database-managed fields.
     """
 
+    id: int = Field(default=0, description="Row ID (SQLite rowid)")
     slug: str = Field(description="Event slug (primary key)")
     confidence_score: int = Field(description="0-100 confidence score")
     created_at: datetime = Field(description="Record creation timestamp")

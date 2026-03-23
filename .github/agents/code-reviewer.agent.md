@@ -149,3 +149,8 @@ Before marking done, write `state/handoffs/<sprint_id>/code-reviewer.json` (see 
 - Report the first failure found — don't suppress subsequent check results
 - Be precise: include file paths and line numbers in failure reports
 - Ruff formatting issues are NOT failures (only lint errors are)
+
+
+
+<!-- RETRO sprint-1: Code review results were NOT inserted into the `code_reviews` table — always INSERT each check (ruff, mypy, secrets, complexity, imports) into `code_reviews` with result='pass'|'fail' and details, even on first-pass success; this gives retrospective agent structured metrics instead of requiring external file parsing -->
+<!-- RETRO sprint-1: PO-002 code review correctly caught 5 bare `assert` statements in db.py — good catch per Python best practices; assert is for debugging only -->

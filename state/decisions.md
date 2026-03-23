@@ -1,7 +1,7 @@
 # Architecture Decision Records (ADRs)
 
 > **Auto-updated by:** Architect agent  
-> **Status:** 5 decisions recorded.
+> **Status:** 12 decisions recorded.
 
 ---
 
@@ -338,6 +338,259 @@ Implement scraper pattern with these design choices:
 
 ---
 
+### ADR-011: Data Normalization Pipeline & Canonical LaunchEvent Model
+
+**Status:** Accepted  
+**Date:** 2025-07-14
+
+**Context:**  
+Raw data ingested by scrapers arrives in heterogeneous formats: ISO 8601 strings, `YYYY-MM-DD`
+date-only strings, `Month DD, YYYY` human-readable dates, and Unix timestamps. Provider names
+vary across sources (e.g., "Space Exploration Technologies" vs "SpaceX"). Launch pad names do
+not consistently include geolocation. Without a normalization layer, the DB accumulates
+inconsistent records that are difficult to query and deduplicate reliably.
+
+The existing `openorbit.models.db.LaunchEvent` represents the *database read model* (slug,
+created_at, confidence_score). We need a separate *canonical domain model* that:
+1. Carries validated, typed fields (not raw strings)
+2. Is the authoritative shape passed from scraper → pipeline → DB write
+3. Isolates parsing failures before they pollute the database
+
+**Decision:**  
+Introduce a `pipeline/` sub-package with three new files and a separate canonical Pydantic v2
+model:
+
+1. **`src/openorbit/models/launch_event.py`** — Canonical `LaunchEvent` Pydantic v2 model
+   - `launch_date: datetime` with `@field_validator` that accepts ISO 8601, `YYYY-MM-DD`,
+     `Month DD, YYYY`, and Unix timestamp (int/float) inputs
+   - `confidence_score: int` validated to be in range 0–100
+   - `launch_type: Literal["civilian", "military", "unknown"]` field validator normalizing
+     common aliases ("commercial" → "civilian", etc.)
+   - Clearly docstring-separated from the DB model in `models/db.py`
+
+2. **`src/openorbit/pipeline/__init__.py`** — empty init exposing `normalize` and `NormalizationError`
+
+3. **`src/openorbit/pipeline/exceptions.py`** — `NormalizationError(ValueError)` custom exception
+
+4. **`src/openorbit/pipeline/aliases.py`** — two lookup tables:
+   - `PROVIDER_ALIASES: dict[str, str]` mapping variant names → canonical names (≥10 entries)
+   - `PAD_LOCATIONS: dict[str, dict]` mapping pad names → `{"lat": float, "lon": float,
+     "location": str}` (≥10 entries covering KSC, Vandenberg, Baikonur, etc.)
+
+5. **`src/openorbit/pipeline/normalizer.py`** — `normalize(raw: dict, source: str) -> LaunchEvent`
+   - Resolves provider name via `PROVIDER_ALIASES`
+   - Enriches lat/lon from `PAD_LOCATIONS` keyed on `pad` field
+   - Passes cleaned dict to canonical `LaunchEvent(**cleaned)`; Pydantic validators handle
+     date parsing
+   - On `ValidationError` or any parse failure: raises `NormalizationError` with the original
+     exception chained; caller is responsible for flagging `parse_error = 1` in DB
+
+6. **DB schema addition** — add `parse_error INTEGER NOT NULL DEFAULT 0` column to
+   `raw_scrape_records` via `ALTER TABLE` in `init_db_schema()` (safe: `IF NOT EXISTS`
+   equivalent via `PRAGMA table_info` check or `ALTER TABLE … ADD COLUMN` which is idempotent
+   in SQLite when column doesn't exist). A helper `flag_parse_error(scrape_record_id: int)`
+   is added to `db.py`.
+
+**Why separate canonical model vs DB model?**  
+The DB `LaunchEvent` (read model) has `slug`, `created_at`, `attribution_count` — fields that
+only exist *after* DB insertion. The canonical model is the *write input*: it is fully
+validated before touching the DB. Keeping them separate avoids circular dependencies and makes
+each model testable in isolation.
+
+**Error handling contract:**  
+- `NormalizationError` is caught by the scraper's run loop
+- The scraper logs the error and calls `flag_parse_error(scrape_record_id)` so raw records are
+  never silently dropped
+- Failed records remain in `raw_scrape_records` with `parse_error = 1` for later reprocessing
+  or manual inspection
+
+**Consequences:**  
+- ✅ Single, validated entry point for all incoming launch data
+- ✅ Date parsing failures surface early with descriptive messages
+- ✅ Provider/pad normalization is centrally maintained in `aliases.py`
+- ✅ Zero silent data loss — every raw record is flagged on failure
+- ✅ 90%+ unit test coverage is straightforward (pure functions, no I/O)
+- ✅ Canonical model decoupled from DB model — each evolves independently
+- ❌ Aliases table requires manual curation as new sources are added
+- ❌ Altering `raw_scrape_records` requires care for existing databases (mitigated by SQLite's
+  `ADD COLUMN` being additive and non-destructive)
+
+---
+
+### ADR-012: REST API — Core Launch Listing & Detail Endpoints (PO-005)
+
+**Status:** Accepted  
+**Date:** 2025-07-14  
+**Sprint Item:** PO-005
+
+**Context:**  
+The openOrbit API needs public-facing REST endpoints for consumers to browse and retrieve launch
+events. The DB layer (`get_launch_events`, `get_launch_event_by_slug`, `get_event_attributions`)
+is already implemented. What is missing is:
+1. A FastAPI router mounted at `/v1/launches` with list and detail endpoints
+2. Dedicated response Pydantic models (separate from DB models) for the API contract
+3. Pagination metadata (`total`, `page`, `per_page`) requiring a count query not yet in `db.py`
+4. ASGI lifespan integration tests (needed to close the main.py coverage gap from 54%)
+
+The existing health router in `api/health.py` is mounted directly at `/health`; v1 endpoints
+must be namespaced under `/v1` to allow future versioning.
+
+**Decision:**  
+
+**1. New package `src/openorbit/api/v1/`**  
+- `__init__.py` — exports `router` (an `APIRouter(prefix="/v1", tags=["launches"])`)
+- `launches.py` — implements `GET /v1/launches` and `GET /v1/launches/{slug}`
+
+**2. New module `src/openorbit/models/api.py` — API response models**  
+Three Pydantic v2 models form the response contract, kept strictly separate from DB and pipeline
+models to avoid coupling:
+- `AttributionResponse` — `source_name: str`, `scraped_at: datetime`, `url: str`
+- `LaunchEventResponse` — full detail model used by both list and detail endpoints:
+  `slug`, `name`, `launch_date`, `launch_date_precision`, `provider`, `vehicle`, `location`,
+  `pad`, `launch_type`, `status`, `confidence_score`, `attribution_count`, `created_at`,
+  `updated_at`, `sources: list[AttributionResponse]`
+- `PaginatedLaunchResponse` — envelope: `data: list[LaunchEventResponse]`,
+  `meta: PaginationMeta` where `PaginationMeta` carries `total`, `page`, `per_page`
+
+**3. New DB helper `count_launch_events` in `db.py`**  
+Accepts the same filter parameters as `get_launch_events` (date_from, date_to, provider, status,
+launch_type) and returns an `int`. This is the only DB change. The existing `get_launch_events`
+signature is unchanged but its `limit`/`offset` parameters are used directly by the router.
+
+**4. Query parameter validation via `fastapi.Query()`**  
+All optional filters use `Query(None)` with explicit type annotations:
+- `from_date: str | None = Query(None, alias="from")` — ISO 8601 date string
+- `to_date: str | None = Query(None, alias="to")` — ISO 8601 date string
+- `provider: str | None = Query(None)`
+- `launch_type: Literal["civilian", "military", "public_report", "unknown"] | None = Query(None)`
+- `status: Literal["scheduled", "success", "failure", "unknown"] | None = Query(None)`
+- `page: int = Query(1, ge=1)`
+- `per_page: int = Query(25, ge=1, le=100)`
+
+FastAPI auto-generates 422 for invalid enum values. The `from`/`to` aliases are needed because
+`from` is a Python keyword; FastAPI's `Query(alias=...)` handles this cleanly.
+
+**5. Error responses**  
+- `GET /v1/launches/{slug}` returns HTTP 404 `{"error": "not_found"}` when slug is absent
+- Standard FastAPI 422 for malformed query params (automatic)
+
+**6. Router mounting in `main.py`**  
+`app.include_router(v1_router)` added to `create_app()` after the health router. The v1 router
+carries `prefix="/v1"` internally so `main.py` imports it cleanly.
+
+**7. ASGI lifespan integration test**  
+`tests/test_api_launches.py` uses `httpx.AsyncClient` with `ASGITransport(app=app)` and
+`lifespan="auto"` from `httpx_asgi` (or equivalent). This exercises the startup/shutdown
+path in `main.py`, closing the 54% coverage gap. The test module-level fixture initialises
+an in-memory SQLite DB via `aiosqlite` and seeds test data, then runs the full ASGI app.
+
+**Why not nest `sources` in the list endpoint?**  
+Fetching attributions for every event in a list of 25 requires N+1 DB queries. The list
+endpoint returns `sources: []` (empty) for list items; sources are only populated on the
+detail endpoint. This avoids a JOIN explosion without requiring eager loading infrastructure.
+Alternatively the detail endpoint fetches attributions in a single separate query after the
+main event query.
+
+**Why a separate `models/api.py`?**  
+- DB models (`models/db.py`) contain DB-side fields (`attribution_count`, raw `status` literals)
+  that do not perfectly match the API contract
+- Pipeline models (`models/launch_event.py`) are write-side input shapes
+- API response models are the stable external contract; decoupling allows each layer to evolve
+  independently and avoids polluting the public API with DB internals
+
+**Consequences:**  
+- ✅ Clean versioned URL space (`/v1/`) supports future `/v2/` without breaking changes
+- ✅ Pagination implemented correctly with total count, not cursor-based (simple for OSINT use)
+- ✅ ASGI lifespan tests close the main.py coverage gap and exercise DB init/teardown
+- ✅ FastAPI auto-docs at `/docs` and `/redoc` work immediately via `Query()` annotations
+- ✅ Attribution N+1 avoided in list; detail endpoint pays exactly 2 queries (event + sources)
+- ❌ `count_launch_events` adds a second DB query on every list request (acceptable at this scale)
+- ❌ `sources: []` in list items may confuse consumers who expect attribution data in lists
+  (mitigated by clear OpenAPI descriptions on both endpoints)
+
+---
+
+### ADR-012: SpaceAgencyScraper Calls normalize() Pipeline
+
+**Status:** Accepted  
+**Date:** 2025-01-31
+
+**Context:**  
+PO-004 implemented the normalization pipeline (`openorbit.pipeline.normalize`). However,
+`SpaceAgencyScraper` was built in ADR-010 before the pipeline existed and directly constructs
+`LaunchEventCreate` objects from raw LL2 JSON without passing through `normalize()`. PO-006
+requires commercial scrapers to call `normalize()` — this ADR records the decision not to
+retrofit `SpaceAgencyScraper` now, to avoid scope creep in the current sprint.
+
+**Decision:**  
+`SpaceAgencyScraper` retains its direct-construction pattern for this sprint. The
+`CommercialLaunchScraper` introduced in PO-006 will call `normalize()` as the reference
+implementation. Retrofitting `SpaceAgencyScraper` is deferred to a future tech-debt sprint item.
+
+**Consequences:**  
+- ✅ PO-006 scope is contained; no unplanned changes to PO-004 deliverables
+- ✅ `CommercialLaunchScraper` serves as the authoritative example of the normalize() contract
+- ❌ Two scraper patterns coexist temporarily; `SpaceAgencyScraper` skips provider aliasing
+
+---
+
+### ADR-013: Commercial Launch Provider Scraper via LL2 Provider Filter
+
+**Status:** Accepted  
+**Date:** 2025-01-31
+
+**Context:**  
+PO-006 requires scraping ≥2 commercial launch providers (SpaceX and Rocket Lab). Options
+considered:
+
+1. **Direct HTML scraping** — SpaceX's public manifest and Rocket Lab's launch page have
+   inconsistent HTML structures subject to frequent layout changes, making parsing fragile.
+2. **Provider-specific JSON APIs** — RocketLaunch.Live and SpaceLaunchNow require registration
+   or have usage constraints; maintenance burden is high.
+3. **Launch Library 2 API with `lsp__name` filter** — LL2 already covers all commercial
+   providers with the same JSON schema used by `SpaceAgencyScraper`. Free, no auth, stable API.
+
+**Decision:**  
+`CommercialLaunchScraper` in `project/src/openorbit/scrapers/commercial.py` uses the LL2
+`/launch/upcoming/` endpoint with an `lsp__name` query parameter to filter by provider. A
+class-level `PROVIDERS` list enumerates supported providers:
+
+```python
+PROVIDERS = [
+    {"name": "SpaceX",      "ll2_filter": "SpaceX"},
+    {"name": "Rocket Lab",  "ll2_filter": "Rocket Lab USA"},
+]
+```
+
+For each provider the scraper:
+1. Registers a distinct `osint_source` row (name = `"LL2 Commercial – <ProviderName>"`).
+2. Fetches `GET /launch/upcoming/?lsp__name=<filter>&limit=100` via `httpx.AsyncClient`.
+3. Stores raw JSON in `raw_scrape_records`.
+4. Calls `normalize(raw_dict, source=source_name)` from `openorbit.pipeline` on each event —
+   the pipeline resolves provider aliases and enriches lat/lon from `PAD_LOCATIONS`.
+5. Calls `upsert_launch_event()` + `add_attribution()` idempotently.
+6. Sleeps `SCRAPER_DELAY_SECONDS` between provider requests to respect rate limits.
+
+`BeautifulSoup`/`selectolax` is listed as an available dependency for future HTML-based
+providers; it is not required for the LL2-backed implementation of SpaceX and Rocket Lab.
+
+Tests mock `httpx.AsyncClient` via `unittest.mock.AsyncMock` and assert:
+- Correct `lsp__name` param sent for each provider.
+- `normalize()` called once per parsed launch.
+- New vs. updated counts reported correctly.
+- `NormalizationError` cases logged and skipped without aborting the run.
+
+**Consequences:**  
+- ✅ Adding a third commercial provider is a one-line `PROVIDERS` entry — no new code path
+- ✅ Consistent JSON schema across all LL2-backed scrapers; `_parse_launch()` reusable
+- ✅ `normalize()` pipeline integrated — provider aliasing and lat/lon enrichment automatic
+- ✅ Each provider has its own `osint_source` row — per-provider scrape history visible in DB
+- ✅ Zero HTML fragility for SpaceX and Rocket Lab
+- ❌ LL2 free tier rate-limits to ~15 req/hour; `SCRAPER_DELAY_SECONDS` must be respected
+- ❌ `BeautifulSoup`/`selectolax` dependency added but only used if HTML providers added later
+
+---
+
 ## Template
 
 ### ADR-001: [Short title]
@@ -357,3 +610,98 @@ Implement scraper pattern with these design choices:
 ---
 
 *ADRs will be added here by the Architect agent as design decisions are made.*
+
+---
+
+### ADR-014: NOTAM Scraper with FAA Public API and Keyword-Based Launch Classification
+
+**Status:** Accepted  
+**Date:** 2025-01-31
+
+**Context:**  
+Sprint item PO-007 requires harvesting publicly available NOTAMs (Notices to Airmen) as a
+third OSINT source for launch event detection. NOTAMs are issued by the FAA and other aviation
+authorities to alert pilots of temporary flight restrictions (TFRs), rocket launches, missile
+tests, and range closures — all of which are strong indicators of launch activity. The FAA
+exposes a REST API at `https://external-api.faa.gov/notamapi/v1/notams`. In practice this API
+requires a registered account for sustained access, so the scraper must degrade gracefully
+when credentials are absent or the API is unreachable.
+
+NOTAM text follows a structured format with labelled line groups (`Q)`, `A)`, `B)`, `C)`,
+`E)`, etc.). The `E)` (free-text) line contains the narrative — where keywords like `ROCKET`,
+`SPACE LAUNCH`, `MISSILE`, and `RANGE CLOSURE` appear. The `Q)` line encodes lat/lon in a
+compressed format (`DDMMN DDDMME` → decimal degrees). `B)` and `C)` lines encode validity
+start/end as `YYMMDDHHMM`.
+
+**Decision:**
+
+1. **Scraper class** — `NotamScraper` in `project/src/openorbit/scrapers/notams.py`,
+   following the same structural pattern as `SpaceAgencyScraper`:
+   - `SOURCE_NAME = "FAA NOTAMs"`
+   - `BASE_URL = "https://external-api.faa.gov/notamapi/v1/notams"`
+   - `scrape()` — orchestrates fetch → log → parse → upsert cycle, returns summary dict
+   - `parse(raw_data: str) -> list[LaunchEventCreate]` — delegates to `notam_parser`
+   - `_fetch_with_retry(url, params)` — reuses exponential backoff pattern from
+     `SpaceAgencyScraper`; on 401/403 logs a clear "credentials required" message and
+     returns `(None, status_code)` so the scraper exits cleanly rather than retrying
+   - `__main__` block calls `asyncio.run(main())` for standalone CLI use
+
+2. **Parser module** — `project/src/openorbit/pipeline/notam_parser.py` is a **pure module**
+   (no I/O, no DB, no HTTP). Public API:
+   - `classify_notam(text: str) -> tuple[str | None, Literal["civilian","military","unknown"] | None]`  
+     Returns `(matched_keyword, launch_type)` or `(None, None)` if no match.
+     Keyword → launch_type mapping (evaluated in priority order):
+     | Pattern (case-insensitive) | launch_type |
+     |---|---|
+     | `SPACE LAUNCH` | `civilian` |
+     | `ROCKET` | `civilian` |
+     | `MISSILE` | `military` |
+     | `RANGE CLOSURE` | `unknown` |
+     Note: the original spec mentioned `public_report` for MISSILE, but the
+     `LaunchEventCreate.launch_type` Literal is constrained to `civilian | military | unknown`;
+     `military` is the closest semantic match for MISSILE NOTAMs.
+   - `parse_q_line(q_line: str) -> dict[str, float | None]`  
+     Extracts `lat`, `lon` from the compressed coordinate in the Q-line
+     (e.g., `3030N08145W` → `lat=30.5, lon=-81.75`). Returns `{"lat": None, "lon": None}`
+     on parse failure.
+   - `parse_validity(b_line: str, c_line: str) -> tuple[datetime | None, datetime | None]`  
+     Parses `YYMMDDHHMM` strings to UTC datetimes. Returns `(None, None)` on failure.
+   - `extract_launch_candidates(notams: list[dict[str, Any]]) -> list[LaunchEventCreate]`  
+     Top-level function called by the scraper. Iterates NOTAM records, calls `classify_notam`
+     on the `E)` text, skips non-matching records, calls `parse_q_line` and `parse_validity`
+     for location/date, constructs `LaunchEventCreate` with
+     `launch_date_precision = "day"` when a specific B-line date is parsed, `"week"` when
+     only an approximate date is inferred.
+
+3. **Slug scheme** — `notam-{notam_id}` where `notam_id` is taken from the API response
+   field (typically the NOTAM number, e.g., `1/2345`). Slashes are replaced with hyphens.
+   Idempotency follows the existing slug-based upsert in `upsert_launch_event`.
+
+4. **Raw storage** — The full NOTAM JSON object is serialised to `raw_scrape_records.payload`
+   unchanged, satisfying the requirement to store raw NOTAM text for audit / reprocessing.
+
+5. **Offline / auth-required fallback** — When the FAA API returns 401/403 or a network
+   error exhausts retries, the scraper logs a warning (`"FAA NOTAM API unavailable — check
+   credentials or network"`) and returns `{"total_fetched": 0, "new_events": 0,
+   "updated_events": 0}`. It does **not** raise, so the orchestration layer can proceed with
+   other scrapers.
+
+6. **Tests** — `project/tests/test_notam_parser.py` covers:
+   - `classify_notam` with ≥3 sample NOTAM E-line strings (ROCKET, SPACE LAUNCH, MISSILE,
+     RANGE CLOSURE, non-matching)
+   - `parse_q_line` with valid and malformed Q-lines
+   - `parse_validity` with valid B/C timestamps and edge cases (PERM C-line)
+   - `extract_launch_candidates` with a list of mixed NOTAM dicts
+   - `NotamScraper.scrape()` and `NotamScraper.parse()` with `httpx` mocked via
+     `respx` or `unittest.mock`
+
+**Consequences:**  
+- ✅ Keyword classifier is a pure function — trivial to unit test without any I/O mocking
+- ✅ Graceful offline fallback prevents FAA API auth requirements from blocking other scrapers
+- ✅ Follows established `SpaceAgencyScraper` pattern — minimal learning curve for maintainers
+- ✅ Raw NOTAM JSON preserved in `raw_scrape_records` for reprocessing
+- ✅ Slug-based idempotency prevents duplicate events across repeated scrape runs
+- ❌ FAA API requires account registration for production use; test coverage relies on mocks
+- ❌ NOTAM coordinates use non-standard compressed format requiring custom parser
+- ❌ `launch_type = "public_report"` (original spec) is not representable in the current
+  Literal enum; mapped to `"military"` pending a future enum extension

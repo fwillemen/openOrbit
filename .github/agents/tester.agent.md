@@ -175,3 +175,8 @@ Before marking done, write `state/handoffs/<sprint_id>/tester.json`:
 ```bash
 mkdir -p state/handoffs/<sprint_id>
 ```
+
+
+
+<!-- RETRO sprint-1: openorbit.main lifespan hooks (startup/shutdown) scored 54% coverage — when a FastAPI app has a lifespan context manager, add an ASGI integration test using `httpx.AsyncClient(app=app, base_url="http://test", lifespan="on")` to exercise startup/shutdown paths -->
+<!-- RETRO sprint-1: openorbit.scrapers.base scored 0% — BaseScraper abstract class was never directly exercised; for abstract protocol classes with no executable logic, either add `# pragma: no cover` to abstract methods or add protocol compliance tests -->
