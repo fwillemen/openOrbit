@@ -10,6 +10,7 @@ openOrbit is a modern REST API service that aggregates and tracks orbital launch
 - 🗄️ **SQLite Database Layer** — 4-table schema with full-text search, multi-source attribution, and confidence scoring
 - 📊 **13 Repository Functions** — Type-safe async database access with Pydantic models
 - 🛰️ **Space Agency Launch Scraper** — Automated data collection from Launch Library 2 API with retry logic and attribution tracking
+- 🔄 **Data Normalization Pipeline** — Converts raw scraper dicts into canonical `LaunchEvent` models with provider alias resolution, pad geo-enrichment, and multi-format date parsing
 - 🔄 **Async Architecture** — Non-blocking I/O for high-performance data collection
 - 📝 **Structured Logging** — JSON logs for production, pretty console for dev
 - 🐍 **Type-Safe** — Full type annotations with mypy strict mode
@@ -150,12 +151,17 @@ project/
 │   ├── schema.sql          # 4-table SQLite schema
 │   ├── api/                # API route modules
 │   │   └── health.py       # Health check endpoint
+│   ├── pipeline/           # Data normalization pipeline
+│   │   ├── normalizer.py   # normalize(raw, source) → LaunchEvent
+│   │   ├── aliases.py      # Provider aliases & pad locations
+│   │   └── exceptions.py   # NormalizationError
 │   ├── scrapers/           # OSINT data scrapers
 │   │   ├── base.py         # Abstract base scraper class
 │   │   └── space_agency.py # Launch Library 2 API scraper
 │   └── models/
 │       ├── __init__.py
-│       └── db.py           # Pydantic models for DB entities
+│       ├── db.py           # Pydantic models for DB entities
+│       └── launch_event.py # Canonical LaunchEvent pipeline model
 ├── tests/                  # Test suite
 │   ├── conftest.py         # Pytest fixtures & database setup
 │   ├── test_health.py      # Health endpoint tests
@@ -213,6 +219,7 @@ openOrbit follows modern Python best practices:
 - **Environment-First Config** — 12-factor app principles
 - **Type-Safe** — Full type annotations with mypy
 - **Modular Design** — Clear separation of API, data, and scraping concerns
+- **Normalization Pipeline** — Raw scraper output flows through `openorbit.pipeline.normalize()` which resolves provider aliases, enriches pad coordinates, and validates data via Pydantic v2 before it reaches the database. See [docs/normalization.md](../docs/normalization.md) for full reference.
 
 For detailed architecture decisions, see `state/decisions.md` in the parent repository.
 
