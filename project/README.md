@@ -6,6 +6,7 @@ openOrbit is a modern REST API service that aggregates and tracks orbital launch
 
 ## Features
 
+- 🔑 **API Key Authentication** — PBKDF2-SHA256 hashed keys with admin bootstrap via `OPENORBIT_ADMIN_KEY`
 - ✅ **Health Check Endpoint** — `/health` returns service status and version
 - 🗄️ **SQLite Database Layer** — 4-table schema with full-text search, multi-source attribution, and confidence scoring
 - 📊 **13 Repository Functions** — Type-safe async database access with Pydantic models
@@ -78,6 +79,54 @@ uv run ruff format src/ tests/
 # Type check
 uv run mypy src/
 ```
+
+## Authentication
+
+openOrbit uses API key authentication for write operations. All GET endpoints are public.
+
+### Bootstrap Admin Key
+
+Set `OPENORBIT_ADMIN_KEY` in your environment (or `.env`) before starting the server:
+
+```ini
+OPENORBIT_ADMIN_KEY=your-strong-secret-here
+```
+
+### Create an API Key
+
+```bash
+curl -s -X POST http://localhost:8000/v1/auth/keys \
+  -H "X-API-Key: your-strong-secret-here" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-key", "is_admin": false}'
+```
+
+### Use an API Key
+
+```bash
+curl http://localhost:8000/v1/launches \
+  -H "X-API-Key: <your-key>"
+```
+
+For full details — including revoking keys and error codes — see [docs/auth.md](../docs/auth.md).
+
+---
+
+## API Overview
+
+| Method | Endpoint | Auth Required | Description |
+|--------|----------|:-------------:|-------------|
+| `GET` | `/health` | ❌ | Service health and version |
+| `GET` | `/v1/launches` | ❌ | List launch events (filterable, paginated) |
+| `GET` | `/v1/launches/{slug}` | ❌ | Get a single launch event by slug |
+| `GET` | `/v1/sources` | ❌ | List OSINT source registry with event counts |
+| `POST` | `/v1/auth/keys` | ✅ Admin | Create a new API key |
+| `DELETE` | `/v1/auth/keys/{key_id}` | ✅ Admin | Revoke an API key |
+
+For the full API reference including query parameters and response schemas, see [docs/api-reference.md](../docs/api-reference.md).  
+Interactive docs (try-it-out): **http://localhost:8000/docs**
+
+---
 
 ## API Endpoints
 

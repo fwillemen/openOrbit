@@ -30,7 +30,7 @@ class BaseScraper(Protocol):
         Raises:
             Exception: If critical failure occurs (network timeout, DB error, etc.)
         """
-        ...
+        ...  # pragma: no cover
 
     async def parse(self, raw_data: str) -> list[LaunchEventCreate]:
         """Parse raw API/HTML response into LaunchEventCreate models.
@@ -44,4 +44,4 @@ class BaseScraper(Protocol):
         Raises:
             ValueError: If data format is invalid.
         """
-        ...
+        ...  # pragma: no cover

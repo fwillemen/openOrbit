@@ -1008,3 +1008,297 @@ without duplication or confidence drift.
   (deferred to a future ADR once lat/lon parsing is standardised)
 - ❌ Confidence adjustment is additive and uncapped per rule; future work could weight
   rules based on source reliability
+
+---
+
+### ADR-011: Test Coverage Strategy for Protocol Classes, ASGI Lifecycle, and API Error Paths
+
+**Status:** Accepted  
+**Date:** 2025-07-14  
+**Sprint Item:** PO-023
+
+**Context:**  
+Overall project coverage sits at 88% (target ≥85%), but four modules fall below the hard 80% minimum:
+
+- `scrapers/base.py` — 0% (8 stmts): Pure Protocol class; no concrete implementation to instantiate, so standard test collection never exercises it.
+- `main.py` — 56% (19 stmts missing): `configure_logging()` and the `lifespan()` async context manager (startup/shutdown hooks) are never invoked by the existing route-focused test suite.
+- `api/v1/sources.py` — 53% (8 stmts missing): The GET `/v1/sources` route body is absent from all current tests.
+- `api/v1/launches.py` — 77% (22 stmts missing): Error branches (404 on missing slug, invalid cursor, bad geo-filter params) and pagination edge cases are untested.
+
+**Decision:**  
+
+**`scrapers/base.py` — Protocol coverage**  
+Decorate the `BaseScraper` Protocol with `@runtime_checkable`. Create a minimal concrete `DummyScraper` stub in the test module that implements `scrape()` and `parse()`. Test:
+1. `isinstance(DummyScraper(), BaseScraper)` returns `True`.
+2. A class missing either method fails the `isinstance` check.
+3. Calling `scrape()` and `parse()` on the stub returns the expected types.
+
+**`main.py` — ASGI lifecycle coverage**  
+Mock the four I/O side-effect functions (`init_db`, `close_db`, `start_scheduler`, `stop_scheduler`) with `unittest.mock.AsyncMock` / `MagicMock`. Use `httpx.AsyncClient(transport=ASGITransport(app=create_app()))` inside an `async with` block to trigger the lifespan. Separately call `configure_logging()` directly to cover its branch. Tests:
+1. Startup path: verify `init_db` and `start_scheduler` are called once.
+2. Shutdown path: verify `stop_scheduler` and `close_db` are called once.
+3. `configure_logging()` does not raise and sets the root log level.
+
+**`api/v1/sources.py` — GET /v1/sources coverage**  
+Use the existing `async_client` fixture. Tests:
+1. Empty database → 200 with `{"sources": []}`.
+2. Pre-seeded source rows → 200 with correct source objects in the response body.
+3. Verify response JSON schema fields (`name`, `url`, `type`, `last_scraped_at`).
+
+**`api/v1/launches.py` — error paths and edge cases**  
+Use the `async_client` fixture. Tests:
+1. `GET /v1/launches/{slug}` with a non-existent slug → 404 with error body.
+2. `GET /v1/launches?cursor=INVALID` → 400 or graceful empty result (match implementation).
+3. `GET /v1/launches?lat=abc&lon=def` → 422 validation error.
+4. `GET /v1/launches?lat=91&lon=181` → 422 (out-of-range).
+5. Pagination: first page returns `next_cursor`; fetching with that cursor returns the next page; last page returns `null` cursor.
+
+**Files to create:**
+- `project/tests/test_coverage_base.py`
+- `project/tests/test_coverage_main.py`
+- `project/tests/test_coverage_sources.py`
+- `project/tests/test_coverage_launches_extended.py`
+
+**Consequences:**  
+- ✅ `scrapers/base.py`: 0% → ~90% (all public Protocol surface exercised)
+- ✅ `main.py`: 56% → ~85%+ (lifespan hooks and logging covered via mocks)
+- ✅ `api/v1/sources.py`: 53% → ~95% (route body fully exercised)
+- ✅ `api/v1/launches.py`: 77% → ~90%+ (all identified error branches covered)
+- ✅ Overall project coverage: 88% → ~92%+ (conservative estimate)
+- ❌ Mocking `init_db`/`close_db` in lifespan tests means actual DB migration code is not exercised in those tests — integration remains covered by existing DB fixture tests
+
+---
+
+## ADR-012: API Key Authentication — Hashed Storage, Timing-Safe Comparison, Bootstrap via Env Var
+
+**Status:** Accepted  
+**Date:** 2025-07-14  
+**Sprint Item:** PO-024
+
+### Context
+
+openOrbit admin endpoints (key creation, key revocation) need protection without
+introducing OAuth flows, refresh tokens, or an external identity provider. A simple
+static API key scheme is sufficient for the threat model (internal tooling / CI pipelines).
+
+### Decisions
+
+1. **Storage algorithm** — PBKDF2-SHA256 with 260,000 iterations and a 32-byte (64-char
+   hex) random salt generated per key. Chosen over bcrypt to avoid a heavy native
+   dependency while still providing key-stretching that makes offline brute-force
+   impractical. The digest is stored as a hex string in the `key_hash` column alongside
+   its `salt`.
+
+2. **Timing-safe comparison** — All key comparisons use `hmac.compare_digest()` to
+   prevent timing side-channel attacks. This applies both to the hash comparison
+   (`verify_key`) and to the bootstrap env-var comparison.
+
+3. **Bootstrap admin key** — `OPENORBIT_ADMIN_KEY` env var is read via pydantic-settings
+   (`Settings.OPENORBIT_ADMIN_KEY: str | None`). If set, it is compared in memory with
+   `hmac.compare_digest` on every request. It is **never** stored in the database.
+   This allows zero-config deployment in CI without a DB seed step.
+
+4. **New DB table** — `api_keys` table added to `schema.sql`:
+   ```sql
+   CREATE TABLE IF NOT EXISTS api_keys (
+       id INTEGER PRIMARY KEY AUTOINCREMENT,
+       name TEXT NOT NULL,
+       key_hash TEXT NOT NULL,
+       salt TEXT NOT NULL,
+       is_admin INTEGER NOT NULL DEFAULT 0,
+       created_at TEXT NOT NULL,
+       revoked_at TEXT  -- NULL while active
+   );
+   ```
+   Revoked keys are retained for audit; authentication checks filter on `revoked_at IS NULL`.
+
+5. **FastAPI dependencies** — Two reusable async dependencies in `openorbit.auth`:
+   - `require_admin(request)` — checks X-API-Key header then `?api_key=` query param;
+     raises 401 on absence, 403 on invalid/revoked key. Accepts bootstrap key or any
+     non-revoked `is_admin=1` DB key.
+   - `require_valid_key(request)` — same flow but accepts any non-revoked DB key (for
+     future non-admin protected endpoints).
+
+6. **Router** — `openorbit.api.v1.auth` registers two routes under `/v1/auth`:
+   - `POST /v1/auth/keys` — create key, returns plaintext key once only.
+   - `DELETE /v1/auth/keys/{id}` — soft-revoke by setting `revoked_at`.
+   Both depend on `require_admin`.
+
+7. **Bootstrap key never stored** — confirmed by design: the env var is never written to
+   the database, never logged, and compared only in `hmac.compare_digest` in process memory.
+
+### Public/Protected Boundary
+
+| Endpoint | Auth required |
+|---|---|
+| GET /v1/launches | ❌ public |
+| GET /v1/launches/{slug} | ❌ public |
+| GET /v1/sources | ❌ public |
+| GET /health | ❌ public |
+| POST /v1/auth/keys | ✅ admin key |
+| DELETE /v1/auth/keys/{id} | ✅ admin key |
+
+### Consequences
+
+- ✅ Simple, auditable — all auth logic in ≤150 LOC across two files
+- ✅ No token refresh — static keys suit CI pipelines and internal dashboards
+- ✅ Timing-safe by design throughout
+- ✅ Zero-dependency bootstrap (stdlib `hmac`, `hashlib`, `secrets` only)
+- ✅ Schema change is additive and idempotent (`CREATE TABLE IF NOT EXISTS`)
+- ❌ No key expiry or automatic rotation — deferred to a future ADR
+- ❌ All admin keys have equal privilege — role-based scopes deferred
+
+---
+
+## ADR-PO014: OpenAPI Documentation Strategy
+
+Date: 2026-03-24
+Status: Accepted
+
+### Context
+
+openOrbit exposes a FastAPI REST API with six endpoints across three routers (launches,
+sources, auth). While the Python docstrings are thorough, the auto-generated Swagger UI
+at `/docs` lacks structured metadata: routes have no `tags`, `summary`, `response_description`,
+or error `responses` schemas; Pydantic models carry no `json_schema_extra` examples; and no
+human-readable developer guides exist in `docs/`.
+
+### Decision
+
+Enrich in-place — no new code modules are required. Changes fall into four areas:
+
+1. **Route decorators** — add `tags`, `summary`, `description`, `response_description`,
+   and `responses` dicts to every `@router.get/post/delete` call in:
+   - `api/v1/launches.py` (2 routes)
+   - `api/v1/sources.py` (1 route)
+   - `api/v1/auth.py` (2 routes — partial metadata already present)
+
+2. **Pydantic models** — add `model_config = ConfigDict(json_schema_extra={"example": ...})`
+   to every response/request model in `models/api.py`:
+   - `AttributionResponse`, `PaginationMeta`, `LaunchEventResponse`,
+     `PaginatedLaunchResponse`, `ApiKeyCreateRequest`, `ApiKeyCreateResponse`,
+     `ApiKeyRevokeResponse`
+
+3. **FastAPI app** — add `openapi_tags` list to `create_app()` in `main.py` to provide
+   tag descriptions that appear at the top of the Swagger UI tag groups.
+
+4. **Documentation files** (authored, not generated):
+   - `docs/api-reference.md` — endpoint table, parameter tables, example request/response
+     for every route, error code catalogue
+   - `docs/quickstart.md` — installation, env vars, first curl call, pagination walk-through,
+     auth key lifecycle
+
+### Structure of `docs/api-reference.md`
+
+```
+# API Reference
+## Authentication
+## Launches
+### GET /v1/launches (params table, example curl, example 200 response, error table)
+### GET /v1/launches/{slug} (params table, example curl, example 200/404 response)
+## Sources
+### GET /v1/sources (example curl, example 200 response)
+## Admin — API Keys
+### POST /v1/auth/keys (request body table, example curl, 201/401/403 response)
+### DELETE /v1/auth/keys/{id} (example curl, 200/404/409 response)
+## Error Reference (common error shapes)
+```
+
+### Structure of `docs/quickstart.md`
+
+```
+# Quick Start
+## Prerequisites
+## Installation (Docker vs. bare uv)
+## Environment variables
+## First launch query (curl)
+## Filtering & pagination walk-through
+## Creating an API key
+## Revoking an API key
+## Rate limits & error handling
+```
+
+### Consequences
+
+- ✅ Zero new runtime dependencies — pure metadata and Markdown
+- ✅ Swagger UI becomes immediately useful for third-party integrators
+- ✅ `json_schema_extra` examples appear in both Swagger UI "Try it out" and ReDoc
+- ✅ Human-readable guides in `docs/` fulfil PO-014 acceptance criteria
+- ✅ `project/README.md` API section updated with endpoint overview table
+- ❌ Examples in `json_schema_extra` are static — they must be maintained manually
+  if field names change; a future ADR may automate example generation from fixtures
+
+## ADR-PO015: Modular Source Plugin Interface
+
+Date: 2026-03-24
+Status: Accepted
+
+### Context
+
+openOrbit has three concrete scrapers (`SpaceAgencyScraper`, `CommercialScraper`,
+`NotamScraper`) each implemented as standalone classes with no shared base class
+beyond an informal `Protocol`. The scheduler discovers scrapers by querying the
+`osint_sources` table for a `scraper_class` dotted-path string, then dynamically
+imports the class. Adding a new scraper requires both a new Python file **and** a
+manual DB row insert — two error-prone, disconnected steps.
+
+`GET /v1/sources` reflects only DB-registered sources, missing any scraper that
+has not yet been seeded into the database.
+
+### Decision
+
+1. **Replace `BaseScraper` Protocol with an ABC.**  `scrapers/base.py` will expose
+   `BaseScraper(ABC)` with:
+   - `@abstractmethod async def scrape(self) -> dict[str, int]`
+   - `@abstractmethod async def parse(self, raw_data: str) -> list[LaunchEventCreate]`
+   - `source_name: ClassVar[str]` — required class attribute validated in
+     `__init_subclass__`
+   - `source_url: ClassVar[str]` — required class attribute validated in
+     `__init_subclass__`
+   - `__init_subclass__` hook that auto-registers any non-abstract concrete subclass
+     into the global `ScraperRegistry` singleton the moment its module is imported.
+
+2. **Create `scrapers/registry.py`** with a `ScraperRegistry` class and a
+   module-level `scraper_registry` singleton.  The registry exposes:
+   - `register(cls)` — idempotent; keyed by `source_name`
+   - `get_all() -> list[type[BaseScraper]]`
+   - `get_by_name(name: str) -> type[BaseScraper] | None`
+
+3. **Existing scrapers** (`SpaceAgencyScraper`, `CommercialScraper`,
+   `NotamScraper`) will inherit from `BaseScraper` instead of being standalone
+   classes.  Each must:
+   - Rename `SOURCE_NAME` → `source_name`, `BASE_URL` → `source_url` (class attrs).
+   - Add `parse()` if missing (or rename existing internal parse method to match
+     the ABC signature).
+   - Inherit from `BaseScraper` — `__init_subclass__` handles auto-registration.
+
+4. **`scrapers/__init__.py`** will import all concrete scraper modules so that
+   their classes are registered as a side-effect of `import openorbit.scrapers`.
+   This is the canonical "plugin loading" step.
+
+5. **`scheduler.py`** gains a new `run_scraper_job_from_registry()` function.
+   `start_scheduler()` will:
+   - Call `import openorbit.scrapers` (triggers auto-registration).
+   - Iterate `scraper_registry.get_all()`.
+   - Schedule each using a default interval (6 h) or a per-scraper
+     `REFRESH_INTERVAL_HOURS` class attribute if present.
+   - Fall back to the existing DB-driven approach for sources that declare a
+     custom `scraper_class` path not yet migrated.
+
+6. **`GET /v1/sources`** will merge the registry list with the DB rows.
+   For each registered scraper, if no DB row exists for `source_name`, it appears
+   with `{"registered": true, "db_seeded": false}`.  Existing DB-only sources
+   retain their `event_count` and `last_scraped_at` data.
+
+### Consequences
+
+- ✅ Adding a new scraper requires only a new Python file — no DB seed needed.
+- ✅ `BaseScraper` is now enforceable at import time (missing `source_name` raises
+  `TypeError`), preventing silent misconfigurations.
+- ✅ `GET /v1/sources` gives real-time visibility into all registered scrapers.
+- ✅ `scrapers/base.py` is fully testable (no network I/O) — ≥95% coverage is
+  achievable with pure-unit tests.
+- ❌ Existing scrapers require minor refactoring (rename two class attrs, add
+  `BaseScraper` to the class header) — low risk, well-scoped.
+- ❌ Scrapers that define no DB row lose historical `event_count` until first
+  scrape run; acceptable trade-off for simplicity.

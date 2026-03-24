@@ -101,8 +101,22 @@ CREATE VIRTUAL TABLE IF NOT EXISTS launch_events_fts USING fts5(
 );
 
 -- =============================================================================
--- FTS5 Sync Triggers
+-- API Keys (Authentication)
 -- =============================================================================
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL,   -- PBKDF2-SHA256 hex digest
+    salt TEXT NOT NULL,       -- Hex-encoded random salt (64 chars)
+    is_admin INTEGER NOT NULL DEFAULT 0,  -- 1 = admin, 0 = read-only
+    created_at TEXT NOT NULL,  -- ISO 8601 timestamp
+    revoked_at TEXT            -- NULL while active; set on revocation
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_revoked
+ON api_keys(revoked_at);
+
+
 CREATE TRIGGER IF NOT EXISTS launch_events_fts_insert 
 AFTER INSERT ON launch_events 
 BEGIN 

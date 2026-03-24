@@ -99,11 +99,37 @@ def create_app() -> FastAPI:
     """
     settings = get_settings()
 
+    openapi_tags = [
+        {
+            "name": "launches",
+            "description": "Launch event discovery and detail endpoints",
+        },
+        {
+            "name": "sources",
+            "description": "OSINT source registry",
+        },
+        {
+            "name": "auth",
+            "description": "API key management (admin only)",
+        },
+        {
+            "name": "health",
+            "description": "Service health check",
+        },
+    ]
+
     app = FastAPI(
         title="openOrbit",
-        description="OSINT platform for orbital launch intelligence",
+        description=(
+            "OSINT platform for orbital launch intelligence. "
+            "Aggregates launch data from multiple open-source intelligence sources, "
+            "providing a unified REST API for launch schedules, provider information, "
+            "and historical launch data.\n\n"
+            "All `GET` endpoints are **public**. Write operations require an `X-API-Key` header."
+        ),
         version=settings.VERSION,
         lifespan=lifespan,
+        openapi_tags=openapi_tags,
     )
 
     # CORS middleware (allow all origins for dev, restrict in production)

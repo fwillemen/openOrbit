@@ -3,7 +3,7 @@
 > **Product:** openOrbit — Global Launch Event Tracking & Analysis API  
 > **Owner:** Product Owner Agent  
 > **Source:** `state/goal.md` — OSINT-powered launch tracking API, modelled on RocketLaunch Live  
-> **Last updated:** 2025-01-01
+> **Last updated:** 2025-07-14 (full reassessment)
 
 ---
 
@@ -11,318 +11,425 @@
 
 | Priority     | Count | Done |
 |--------------|-------|------|
-| Must Have    | 11    | 0    |
-| Should Have  | 5     | 0    |
-| Could Have   | 3     | 0    |
+| Must Have    | 17    | 13   |
+| Should Have  | 6     | 0    |
+| Could Have   | 2     | 0    |
 | Won't Have   | 3     | —    |
-| **Total**    | **22**| **0**|
+| **Total**    | **28**| **13**|
 
 ---
 
-## Backlog Story
+## Reassessment Notes
 
-The backlog is ordered to build from the ground up: **foundations first** (project
-structure + database), then **data in** (scrapers + normalization), then **data out**
-(REST API), then **multi-source aggregation** (deduplication + attribution + confidence),
-then **scheduled automation** (refresh jobs), and finally the **inference layer**.
-Should Have items extend and harden the MVP; Could Have items are stretch goals.
+This backlog was critically reassessed after 13 delivered items. The remaining items
+were re-evaluated against three questions:
+
+1. **What prevents safe public exposure of this API today?**  
+   → No auth system; `scrapers/notams.py` has **0% test coverage** (105/105 stmts); 
+   `main.py` lifecycle is **44% covered** — startup/shutdown reliability is dark.
+
+2. **What does the success criteria in `goal.md` require that isn't done?**  
+   → "API is stable, **documented**, and usable for dashboards" — no developer guide exists.  
+   → "Must be **modular** to allow adding new data sources" — `base.py` exists but is 
+   **0% covered** and undocumented; the registry pattern is absent.
+
+3. **What carry-forward technical debt is serious enough to block production?**  
+   → `notams.py` (0%), `base.py` (0%), `main.py` lifecycle (44%), `sources.py` (53%), 
+   `launches.py` error paths (77%) — collectively these represent untested critical paths.
+
+**Changes made:**
+- PO-014 (OpenAPI docs): **promoted to Must Have** — success criterion explicitly requires "documented"
+- PO-015 (Plugin interface): **promoted to Must Have** — goal constraint + base.py at 0% coverage
+- PO-016 (Admin endpoints): kept Should Have — depends on PO-024 (auth)
+- PO-017 (4th OSINT source): **promoted to Should Have** — original scope lists news/OSINT aggregators
+- PO-018 (Event history): kept Could Have — valuable analytics, not production-critical
+- PO-019 (Webhooks/SSE): kept Could Have — stretch goal
+- **PO-023 added (Must Have)**: Test coverage hardening — notams.py 0%, main.py lifecycle, error branches
+- **PO-024 added (Must Have)**: API key authentication — required for protected endpoints
+- **PO-025 added (Should Have)**: PostgreSQL migration path — explicitly listed in goal.md
+- **PO-026 added (Should Have)**: CI/CD pipeline — production-readiness gate
 
 ---
 
 ## Must Have
 
 > Core functionality without which the product fails to meet its success criteria.
+> PO-001 through PO-013 are **done**. PO-014, PO-015, PO-023, PO-024 are the
+> remaining Must Have items identified through post-delivery gap analysis.
 
 ---
 
 ### PO-001: Project Bootstrap, Repository Structure & Configuration Management
 
 **Priority:** Must Have  
-**Description:** Establish the full project skeleton that every subsequent sprint item
-builds on. This includes the Python package layout under `src/openorbit/`, dependency
-management via `uv`, environment-variable–based configuration (making the app
-Docker-compatible from day one), logging setup, and a minimal FastAPI application that
-starts up and returns a `200 OK` health check. Without this foundation no other item
-can be implemented.
+**Description:** Establish the full project skeleton — Python package layout, `uv`
+dependency management, environment-variable config, structured logging, and a minimal
+FastAPI app with a health check. Foundation for every subsequent item.
 
 **Acceptance Criteria:**
-- [ ] `uv` project initialised; `pyproject.toml` defines `openorbit` package under `src/`
-- [ ] Package layout: `src/openorbit/{main.py, config.py, db.py, api/, scrapers/, models/}`
-- [ ] `config.py` reads all settings from environment variables with sensible defaults
-      (e.g. `DATABASE_URL`, `LOG_LEVEL`, `REFRESH_INTERVAL_MINUTES`)
-- [ ] `GET /health` endpoint returns `{"status": "ok", "version": "<semver>"}` with HTTP 200
-- [ ] `uv run uvicorn openorbit.main:app --reload` starts the server with no errors
-- [ ] `uv run pytest tests/` passes (at minimum the health-check smoke test)
-- [ ] `.env.example` file documents all required environment variables
-- [ ] `README.md` updated with local-dev quickstart (`uv sync && uv run uvicorn …`)
+- [x] `uv` project initialised; `pyproject.toml` defines `openorbit` package under `src/`
+- [x] Package layout: `src/openorbit/{main.py, config.py, db.py, api/, scrapers/, models/}`
+- [x] `config.py` reads all settings from environment variables with sensible defaults
+- [x] `GET /health` returns `{"status": "ok", "version": "<semver>"}` with HTTP 200
+- [x] `uv run uvicorn openorbit.main:app --reload` starts with no errors
+- [x] `uv run pytest tests/` passes health-check smoke test
+- [x] `.env.example` documents all required environment variables
+- [x] `README.md` updated with local-dev quickstart
 
-**Status:** `pending`
+**Status:** `done`
 
 ---
 
 ### PO-002: Core Database Schema & SQLite Persistence Layer
 
 **Priority:** Must Have  
-**Description:** Design and implement the SQLite database schema that stores all launch
-events, OSINT sources, per-event source attributions, and raw scrape records. The schema
-must be normalised enough to support multi-source deduplication and confidence scoring
-in later sprints, while remaining simple enough to migrate to PostgreSQL without rewrites.
-All DB access goes through a thin repository layer (no ORM required; raw `aiosqlite` or
-`sqlite3` with typed helpers is fine).
+**Description:** SQLite schema for launch events, OSINT sources, event attributions,
+and raw scrape records. Thin async repository layer (aiosqlite). Idempotent init.
+Typed helpers: `upsert_launch_event()`, `get_launch_events()`, `add_attribution()`,
+`log_scrape_run()`. Schema designed for future PostgreSQL migration.
 
 **Acceptance Criteria:**
-- [ ] `state/schema.sql` (project schema, separate from fleet schema) defines tables:
-      `launch_events`, `osint_sources`, `event_attributions`, `raw_scrape_records`
-- [ ] `launch_events` columns: `id`, `slug`, `name`, `launch_date`, `launch_date_precision`
-      (`exact`/`day`/`week`/`month`), `provider`, `vehicle`, `location`, `pad`,
-      `launch_type` (`civilian`/`military`/`public_report`/`unknown`),
-      `status` (`scheduled`/`success`/`failure`/`unknown`),
-      `confidence_score` (0.0–1.0), `created_at`, `updated_at`
-- [ ] `osint_sources` columns: `id`, `name`, `url`, `scraper_class`, `enabled`, `last_scraped_at`
-- [ ] `event_attributions` links events to sources with a `raw_scrape_record_id`
-- [ ] `raw_scrape_records` stores the original HTML/JSON payload per scrape run (for audit)
-- [ ] `db.py` exposes typed async helpers: `upsert_launch_event()`, `get_launch_events()`,
-      `add_attribution()`, `log_scrape_run()`
-- [ ] Database initialised by `uv run python -m openorbit.db init` (idempotent)
-- [ ] All helpers covered by unit tests using an in-memory SQLite fixture
+- [x] `state/schema.sql` defines `launch_events`, `osint_sources`, `event_attributions`, `raw_scrape_records`
+- [x] `launch_events` has all required columns including `confidence_score`, `launch_type`, `inference_flags`
+- [x] `db.py` exposes typed async helpers
+- [x] Database initialised by `uv run python -m openorbit.db init` (idempotent)
+- [x] Helpers covered by unit tests using in-memory SQLite fixture
 
-**Status:** `pending`
+**Status:** `done`
 
 ---
 
 ### PO-003: OSINT Scraper — Space Agency Launch Schedules (Source 1)
 
 **Priority:** Must Have  
-**Description:** Implement the first production OSINT scraper targeting publicly available
-space agency launch schedules. Primary target: NASA's public launch schedule page and/or
-the Launch Library 2 public API (api.thespacedevs.com — free tier, no auth required).
-The scraper must extract structured launch data, map it to the canonical `LaunchEvent`
-model, and persist it via the DB layer. This delivers the first real data into the system.
+**Description:** First production OSINT scraper. Targets NASA's public schedule /
+Launch Library 2 public API. Extracts, normalises, and persists events. Idempotent
+upsert. Respects `SCRAPER_DELAY_SECONDS`. Stores raw responses.
 
 **Acceptance Criteria:**
-- [ ] `src/openorbit/scrapers/space_agency.py` implements `SpaceAgencyScraper`
-- [ ] Scraper fetches data from ≥1 public space-agency source (NASA schedule page or
-      Launch Library 2 public API) using `httpx` with a configurable timeout and retries
-- [ ] Scraper respects a `SCRAPER_DELAY_SECONDS` config var (default: 2s between requests)
-- [ ] Raw response stored in `raw_scrape_records` before any parsing
-- [ ] Parsed events upserted into `launch_events`; re-runs are idempotent (no duplicates)
-- [ ] Scraper populates: `name`, `launch_date`, `launch_date_precision`, `provider`,
-      `vehicle`, `location`, `status`; `launch_type` defaults to `civilian`
-- [ ] `uv run python -m openorbit.scrapers.space_agency` runs the scraper and prints
-      a summary (`Scraped N events, N new, N updated`)
-- [ ] Unit tests mock the HTTP layer and assert correct parsing of ≥3 sample payloads
+- [x] `src/openorbit/scrapers/space_agency.py` implements `SpaceAgencyScraper`
+- [x] Scraper fetches from ≥1 public space-agency source via `httpx`
+- [x] Respects `SCRAPER_DELAY_SECONDS` (default 2 s)
+- [x] Raw response stored in `raw_scrape_records`
+- [x] Parsed events upserted idempotently
+- [x] Unit tests mock HTTP layer; assert parsing of ≥3 sample payloads
 
-**Status:** `pending`
+**Status:** `done`
 
 ---
 
 ### PO-004: Data Normalization Pipeline & Canonical LaunchEvent Model
 
 **Priority:** Must Have  
-**Description:** Define the canonical Python dataclass / Pydantic model for a
-`LaunchEvent` and build a normalization pipeline that every scraper feeds into.
-The pipeline handles: date parsing (multiple formats → ISO 8601), provider name
-deduplication (e.g. "SpaceX" vs "Space Exploration Technologies"), location
-normalization (pad → lat/lon lookup table), and launch type coercion. This ensures
-that all scrapers output a uniform structure regardless of source quirks.
+**Description:** Pydantic v2 `LaunchEvent` model and `normalize()` pipeline. Handles
+multiple date formats → ISO 8601, provider alias resolution, pad-to-lat/lon lookup,
+launch type coercion. `NormalizationError` logged and flagged in DB.
 
 **Acceptance Criteria:**
-- [ ] `src/openorbit/models/launch_event.py` defines `LaunchEvent` as a Pydantic v2 model
-      with field validators for `launch_date`, `confidence_score`, and `launch_type`
-- [ ] `src/openorbit/pipeline/normalizer.py` implements `normalize(raw: dict, source: str) -> LaunchEvent`
-- [ ] Normalizer handles ISO 8601, `YYYY-MM-DD`, `Month DD, YYYY`, and Unix timestamp inputs
-      for `launch_date`; raises `NormalizationError` on unparseable input
-- [ ] Provider name aliases defined in `src/openorbit/pipeline/aliases.py`
-      (e.g. `{"Space Exploration Technologies": "SpaceX", …}`)
-- [ ] Pad-to-location lookup table covers ≥10 common launch sites with lat/lon
-- [ ] All normalizer branches covered by pytest unit tests (≥90% coverage on the module)
-- [ ] `NormalizationError` is logged and the raw record is flagged `parse_error = 1` in DB
-      so no data is silently dropped
+- [x] `models/launch_event.py` defines `LaunchEvent` (Pydantic v2) with field validators
+- [x] `pipeline/normalizer.py` implements `normalize(raw, source) -> LaunchEvent`
+- [x] Handles ISO 8601, `YYYY-MM-DD`, `Month DD, YYYY`, Unix timestamps
+- [x] Provider aliases in `pipeline/aliases.py`
+- [x] Pad lookup covers ≥10 common launch sites
+- [x] ≥90% coverage on normalizer module; `NormalizationError` path tested
 
-**Status:** `pending`
+**Status:** `done`
 
 ---
 
 ### PO-005: REST API — Core Launch Listing & Detail Endpoints
 
 **Priority:** Must Have  
-**Description:** Expose the launch event data through a clean, developer-friendly JSON
-REST API. This is the primary user-facing output of the system. The API must be
-queryable by date range, provider, launch type, and status. Responses must include
-full source attribution and confidence score so consumers can assess data quality.
+**Description:** Primary user-facing output. `GET /v1/launches` with date/provider/
+type/status filters. `GET /v1/launches/{id}` with full source attribution and
+confidence score. Standard response envelope.
 
 **Acceptance Criteria:**
-- [ ] `GET /v1/launches` returns a paginated list of launch events (default page size: 25)
-      with query parameters: `?from=<ISO date>`, `?to=<ISO date>`, `?provider=<str>`,
-      `?launch_type=civilian|military|public_report|unknown`, `?status=scheduled|success|failure`
-- [ ] `GET /v1/launches/{id}` returns a single event with full detail including
-      `sources` (list of source names + URLs) and `confidence_score`
-- [ ] Response envelope: `{"data": […], "meta": {"total": N, "page": P, "per_page": 25}}`
-- [ ] Each launch event in the response includes all fields from `LaunchEvent` model
-- [ ] HTTP 404 returned with `{"error": "not_found"}` when event ID does not exist
-- [ ] HTTP 422 returned for invalid query parameter types
-- [ ] API router lives in `src/openorbit/api/v1/launches.py` and is mounted at `/v1`
-- [ ] Integration tests cover: list (empty DB, populated DB), detail (found, not found),
-      all filter combinations
-- [ ] FastAPI auto-generates `/docs` (Swagger UI) and `/redoc` endpoints
+- [x] `GET /v1/launches` paginated, filterable by date, provider, type, status
+- [x] `GET /v1/launches/{id}` returns full detail with `sources` and `confidence_score`
+- [x] HTTP 404 for missing events; HTTP 422 for invalid params
+- [x] Integration tests cover list (empty + populated), detail (found + not found), filters
 
-**Status:** `pending`
+**Status:** `done`
 
 ---
 
 ### PO-006: OSINT Scraper — Commercial Launch Providers (Source 2)
 
 **Priority:** Must Have  
-**Description:** Implement the second production OSINT scraper targeting publicly
-available commercial launch provider schedules. Primary targets: SpaceX's press kit
-page / r/SpaceX manifest (publicly available), Rocket Lab's mission page, and/or
-Arianespace's launch schedule. The scraper feeds through the same normalization
-pipeline as Source 1 and sets `launch_type = civilian`.
+**Description:** Second OSINT scraper. SpaceX press kit + Rocket Lab. Feeds the same
+normalization pipeline. Idempotent, rate-limited, attribution-tagged.
 
 **Acceptance Criteria:**
-- [ ] `src/openorbit/scrapers/commercial.py` implements `CommercialLaunchScraper`
-- [ ] Scraper covers ≥2 distinct commercial providers (e.g. SpaceX + Rocket Lab)
-- [ ] Uses `httpx` + `BeautifulSoup` / `selectolax` for HTML parsing where needed
-- [ ] Respects `SCRAPER_DELAY_SECONDS` between requests to each host
-- [ ] Raw responses stored in `raw_scrape_records`; parsed events upserted idempotently
-- [ ] Events tagged with `osint_source_id` linking back to the correct `osint_sources` row
-- [ ] `uv run python -m openorbit.scrapers.commercial` runs standalone with summary output
-- [ ] Unit tests mock HTTP layer; assert correct parsing of ≥2 sample HTML/JSON payloads
-      (one per provider)
+- [x] `scrapers/commercial.py` implements `CommercialLaunchScraper`
+- [x] Covers ≥2 commercial providers; respects rate limiting
+- [x] Unit tests with mocked HTTP; ≥1 sample payload per provider
 
-**Status:** `pending`
+**Status:** `done`
 
 ---
 
 ### PO-007: OSINT Scraper — Public NOTAMs & Maritime Advisories (Source 3)
 
 **Priority:** Must Have  
-**Description:** Implement the third OSINT scraper targeting publicly available Notice
-to Airmen (NOTAM) data and maritime area warnings (NAVAREAs). These sources often
-contain advance warning of rocket and missile test activity — both civilian and
-publicly reported military. Primary targets: the FAA NOTAM Search API (public, no auth)
-and/or the NOTAM parsing service at `notams.aim.faa.gov`. Maritime warnings from
-NAVAREA broadcasts (publicly posted by maritime authorities) are a secondary target.
+**Description:** Third OSINT scraper. FAA NOTAM public endpoint. Keyword extraction
+(`ROCKET`, `MISSILE`, `SPACE LAUNCH`, `RANGE CLOSURE`). Launch type inference from
+keywords. Stored in `raw_scrape_records`.
 
 **Acceptance Criteria:**
-- [ ] `src/openorbit/scrapers/notams.py` implements `NotamScraper`
-- [ ] Scraper fetches NOTAMs from FAA public endpoint or equivalent public source
-- [ ] NOTAM text parsed for launch-related keywords (`ROCKET`, `MISSILE`, `SPACE LAUNCH`,
-      `RANGE CLOSURE`) using a regex/keyword filter in `pipeline/notam_parser.py`
-- [ ] Matched NOTAMs converted to `LaunchEvent` candidates with `launch_type` inferred
-      from keyword presence (`ROCKET`/`SPACE` → `civilian`; `MISSILE` → `public_report`)
-- [ ] `launch_date_precision` set to `day` or `week` based on NOTAM validity window
-- [ ] Raw NOTAM text stored in `raw_scrape_records`
-- [ ] Unit tests assert keyword extraction from ≥3 sample NOTAM strings
-- [ ] `uv run python -m openorbit.scrapers.notams` runs standalone
+- [x] `scrapers/notams.py` implements `NotamScraper`
+- [x] Keyword regex/filter in `pipeline/notam_parser.py`
+- [x] `launch_type` inferred from keyword presence
+- [x] Unit tests: keyword extraction from ≥3 NOTAM sample strings
 
-**Status:** `pending`
+**Status:** `done`
 
 ---
 
 ### PO-008: Multi-Source Aggregation, Deduplication & Entity Merging
 
 **Priority:** Must Have  
-**Description:** With three scrapers producing events independently, duplicates will
-exist (e.g. the same SpaceX launch appearing in both the commercial scraper and a
-NOTAM). Implement a deduplication and merging pass that runs after each scrape cycle:
-events are clustered by similarity (provider + date window + location) and merged
-into a single canonical record that retains all source attributions. The confidence
-score is increased for events seen in multiple sources.
+**Description:** Post-scrape deduplication pass. Events clustered by provider + date
+window (±3 days) + location. Merged records retain all source attributions. Confidence
+formula: `min(0.3 * num_sources + 0.4, 1.0)`. Idempotent, performance-bounded.
 
 **Acceptance Criteria:**
-- [ ] `src/openorbit/pipeline/deduplicator.py` implements `deduplicate_and_merge()`
-- [ ] Two events are considered duplicates if: same provider (after alias resolution)
-      AND launch dates within 3 days of each other AND same launch site (after normalization)
-- [ ] Merged event retains the union of all `event_attributions` from both source records
-- [ ] Confidence score formula: `min(0.3 * num_sources + base_score, 1.0)` where
-      `base_score` is 0.4 for a single source
-- [ ] Deduplication is idempotent: running twice produces the same result
-- [ ] `GET /v1/launches` never returns duplicate events for the same real-world launch
-- [ ] Unit tests cover: exact duplicate, near-duplicate (±2 days), non-duplicate (different provider)
-- [ ] Deduplication run time logged per cycle; target < 500 ms for 1 000 events
+- [x] `pipeline/deduplicator.py` implements `deduplicate_and_merge()`
+- [x] Duplicate criteria: same provider, dates ≤3 days apart, same location
+- [x] Merged event retains union of attributions; idempotent
+- [x] Unit tests: exact duplicate, near-duplicate, non-duplicate
 
-**Status:** `pending`
+**Status:** `done`
 
 ---
 
 ### PO-009: Source Attribution, Confidence Scoring & Launch Type Classification
 
 **Priority:** Must Have  
-**Description:** Every launch event exposed by the API must carry: (1) a list of the
-OSINT sources it was derived from, including source name and URL; (2) a `confidence_score`
-between 0.0 and 1.0 reflecting data quality and source corroboration; and (3) a
-`launch_type` classification (`civilian`, `military`, `public_report`, `unknown`).
-This satisfies the core success criterion: *"Launch events include metadata such as
-confidence level and source attribution."*
+**Description:** Every API response carries source attribution, confidence score
+(0.0–1.0), and launch type classification. Classifier uses source identity, provider
+name, and keyword signals. Known military programs list (OSINT-only).
 
 **Acceptance Criteria:**
-- [ ] `GET /v1/launches` and `GET /v1/launches/{id}` responses include `sources` array:
-      `[{"name": "NASA Launch Schedule", "url": "https://…", "scraped_at": "…"}]`
-- [ ] `confidence_score` is stored in DB and updated by `deduplicator.py` after each merge
-- [ ] `launch_type` classifier in `pipeline/classifier.py` assigns type based on:
-      source identity (NOTAM with MISSILE keyword → `public_report`),
-      provider name (known military programs → `military`), default → `civilian`
-- [ ] Known military launch programs list maintained in `pipeline/military_programs.py`
-      (populated from publicly reported programs only — no classified data)
-- [ ] `GET /v1/launches?launch_type=public_report` correctly filters events
-- [ ] Unit tests: classifier assigns correct type for ≥5 distinct input scenarios
-- [ ] `confidence_score` range validated; values outside [0.0, 1.0] raise `ValueError`
+- [x] Responses include `sources` array with name, URL, `scraped_at`
+- [x] `confidence_score` stored and updated by deduplicator
+- [x] `pipeline/classifier.py` assigns type; unit tests cover ≥5 distinct scenarios
+- [x] `GET /v1/launches?launch_type=public_report` filters correctly
 
-**Status:** `pending`
+**Status:** `done`
 
 ---
 
 ### PO-010: APScheduler Background Refresh Jobs & Respectful Scraping
 
 **Priority:** Must Have  
-**Description:** Automate the data refresh cycle so the API stays current without
-manual intervention. APScheduler runs inside the FastAPI process and triggers each
-scraper on a configurable interval (default: every 6 hours). The scheduler enforces
-per-host rate limiting so no external site is hit more than once per `SCRAPER_DELAY_SECONDS`.
-A `GET /v1/sources` endpoint exposes the health of each scraper (last run time, event count,
-error status).
+**Description:** APScheduler `AsyncIOScheduler` runs each scraper on a configurable
+interval. Per-host rate limiting via `httpx` limits. Errors logged without crashing
+the scheduler. Clean startup/shutdown in FastAPI `lifespan`.
 
 **Acceptance Criteria:**
-- [ ] `src/openorbit/scheduler.py` sets up APScheduler with `AsyncIOScheduler`
-- [ ] Each scraper registered as a separate job with its own `cron` or `interval` trigger
-- [ ] Refresh interval configurable per-source via `osint_sources.refresh_interval_hours` column
-- [ ] Per-host rate limiting: `httpx` client configured with `limits` and per-request delay
-- [ ] Failed scrape run logs error to `raw_scrape_records` with `status = error` and
-      `error_message`; scheduler does not crash on scraper failure
-- [ ] `GET /v1/sources` returns list of sources with `last_scraped_at`, `event_count`,
-      `last_error` (null if last run succeeded)
-- [ ] Scheduler starts on app startup (`lifespan` event) and shuts down cleanly on stop
-- [ ] Integration test: trigger scraper job manually via scheduler API, assert DB updated
+- [x] `scheduler.py` registers each scraper as a separate interval job
+- [x] Refresh interval configurable per-source
+- [x] Failed scrape run logged; scheduler continues
+- [x] `GET /v1/sources` returns `last_scraped_at`, `event_count`, `last_error`
+- [x] Scheduler starts/stops in lifespan
 
-**Status:** `pending`
+**Status:** `done`
 
 ---
 
 ### PO-011: Basic Inference & Multi-Source Correlation Layer
 
 **Priority:** Must Have  
-**Description:** Implement a lightweight inference layer that applies pattern-based
-rules and multi-source correlation to improve event quality beyond raw scraping.
-This layer runs as a post-processing step after deduplication. It detects: (a) launches
-that appear in ≥2 independent source categories (agency + NOTAM), elevating confidence;
-(b) launches whose date/location matches a known historical pad activity pattern;
-(c) suspicious clustering of NOTAMs near known launch sites (a signal of activity).
-Results annotate events with `inference_flags` (JSON array of applied rule names).
+**Description:** Post-deduplication inference engine with ≥3 rules:
+`multi_source_corroboration` (confidence +0.2 for ≥2 source categories),
+`historical_pad_pattern` (pad reuse within 30 days), `notam_cluster_signal`
+(≥2 NOTAMs within 100 km / 7 days). Events annotated with `inference_flags`.
 
 **Acceptance Criteria:**
-- [ ] `src/openorbit/pipeline/inference.py` implements `InferenceEngine` with ≥3 rules:
-      `multi_source_corroboration`, `historical_pad_pattern`, `notam_cluster_signal`
-- [ ] `launch_events` table gains `inference_flags` column (JSON text, nullable)
-- [ ] `multi_source_corroboration`: event seen in ≥2 source categories → confidence += 0.2
-- [ ] `historical_pad_pattern`: launch date within 30 days of a previous launch from same pad
-      → `inference_flags` includes `"pad_reuse_pattern"`
-- [ ] `notam_cluster_signal`: ≥2 NOTAMs within 100 km and 7 days → flags nearby events
-      with `"notam_cluster"`
-- [ ] `GET /v1/launches/{id}` response includes `inference_flags` array
-- [ ] `GET /v1/launches?has_inference_flag=notam_cluster` filters by flag
-- [ ] Unit tests: ≥1 test per inference rule covering the positive and negative case
-- [ ] Inference engine documented in `docs/inference.md` with rule descriptions
+- [x] `pipeline/inference.py` implements `InferenceEngine` with ≥3 rules
+- [x] `inference_flags` column in `launch_events`
+- [x] `GET /v1/launches/{id}` includes `inference_flags`
+- [x] `GET /v1/launches?has_inference_flag=notam_cluster` filters by flag
+- [x] Unit tests: positive + negative case per rule
+
+**Status:** `done`
+
+---
+
+### PO-012: Docker Deployment — Dockerfile & docker-compose
+
+**Priority:** Must Have  
+**Description:** Minimal `python:3.12-slim` multi-stage Docker image. Non-root user.
+`docker-compose.yml` for local dev with volume-mounted DB. `docs/deployment.md`.
+
+**Acceptance Criteria:**
+- [x] Multi-stage `Dockerfile`; non-root user; image < 300 MB
+- [x] `docker-compose.yml` starts API on port 8000 with data volume
+- [x] `docker build` and `docker run --env-file .env` both succeed; `/health` returns 200
+- [x] `docs/deployment.md` documents build, run, and compose commands
+
+**Status:** `done`
+
+---
+
+### PO-013: API Rate Limiting, Cursor Pagination & Advanced Query Filtering
+
+**Priority:** Must Have  
+**Description:** Per-IP rate limiting (60 req/min), HTTP 429 with `Retry-After`,
+rate-limit headers. Cursor-based pagination. Additional filters: `?provider` (fuzzy),
+`?min_confidence`, `?location&radius_km`. All covered by integration tests.
+
+**Acceptance Criteria:**
+- [x] Rate limiting: 60 req/min per IP; HTTP 429 with `Retry-After` header
+- [x] `X-RateLimit-Limit` and `X-RateLimit-Remaining` headers in responses
+- [x] Cursor-based pagination with `?cursor` and `?limit` (max 100)
+- [x] Filters: `?provider` (fuzzy), `?min_confidence`, `?location&radius_km`
+- [x] All new filters covered by integration tests
+
+**Status:** `done`
+
+---
+
+### PO-014: OpenAPI Documentation, Swagger UI & Developer Guide
+
+**Priority:** Must Have  
+**Description:** The success criterion states the API must be "stable, **documented**,
+and usable for dashboards". FastAPI auto-generates the OpenAPI spec; this item enriches
+it with descriptions, examples, and a written developer guide that makes openOrbit
+consumable by external developers without reading source code.
+
+**Why Must Have:** The success criteria is not met until documentation exists. Without
+it, dashboard and analytics consumers cannot use the API effectively — the primary user
+value proposition is blocked. This is the difference between "built" and "delivered".
+
+**Acceptance Criteria:**
+- [ ] Every endpoint has a `summary`, `description`, and tagged OpenAPI group
+- [ ] Every query parameter has `description=` and a typed `example=` value in `Field()`
+- [ ] Every response model field has `description=` in its Pydantic field definition
+- [ ] `GET /docs` (Swagger UI) and `GET /redoc` are reachable and fully populated
+      with no "missing description" gaps
+- [ ] `GET /openapi.json` returns a valid OpenAPI 3.1 spec (validated with `openapi-spec-validator`)
+- [ ] `docs/api.md` written with: overview, endpoint reference, example `curl` commands
+      and full JSON responses for each endpoint
+- [ ] `docs/api.md` includes a "Confidence Score" explainer and a "Launch Type" guide
+- [ ] Snapshot test asserts `/openapi.json` schema does not regress between runs
+
+**Status:** `pending`
+
+---
+
+### PO-015: Modular Source Plugin Interface & Registry
+
+**Priority:** Must Have  
+**Description:** The goal states the system "Must be modular to allow adding new data
+sources over time." `scrapers/base.py` exists but has **0% test coverage** (8/8 statements
+uncovered) and no registry or auto-discovery. Adding a new scraper today requires
+editing core scheduler code — violating the modularity constraint.
+
+**Why Must Have:** This is an explicit architectural constraint from `goal.md`. The
+plugin interface is partially built but unverified and undocumented, making it
+effectively non-functional as a contract. A developer following the goal cannot add
+a fourth source without modifying core code.
+
+**Acceptance Criteria:**
+- [ ] `scrapers/base.py` `BaseScraper` abstract class is fully tested (100% coverage):
+      all abstract methods, `ScrapeResult` dataclass, error handling path
+- [ ] `ScraperRegistry` in `scrapers/registry.py` allows registering and discovering
+      scrapers without modifying scheduler or pipeline code
+- [ ] All three existing scrapers verified to conform to `BaseScraper` interface
+      via a registry round-trip integration test
+- [ ] Adding a `MockScraper` (implementing `BaseScraper`) in tests auto-registers
+      and executes through the full pipeline without any core code changes
+- [ ] `docs/adding-sources.md` written: step-by-step guide (implement → register → verify)
+- [ ] Scheduler reads active scrapers from the registry, not a hardcoded list
+- [ ] Existing scraper tests still pass after refactor (zero regressions)
+
+**Status:** `pending`
+
+---
+
+### PO-023: Test Coverage Hardening — Critical Untested Paths
+
+**Priority:** Must Have  
+**Description:** Coverage analysis reveals three critical zero-or-near-zero zones
+that make the system unreliable to operate in production:
+
+- **`scrapers/notams.py`: 0% coverage** (105/105 statements uncovered) — a core scraper
+  with zero test coverage means any regression in NOTAM parsing goes undetected
+- **`scrapers/base.py`: 0% coverage** (8/8 statements) — plugin contract is untested
+- **`main.py` ASGI lifecycle: 44% covered** (19/43 missing) — startup/shutdown
+  error paths (DB init failure, scheduler crash) are dark; production incidents here
+  are blind
+- **`api/v1/sources.py`: 53% covered** (8/17 missing) — source listing error branches
+  untested
+- **`api/v1/launches.py`: 77% covered** (22/96 missing) — DB error paths, edge-case
+  filter combinations, and cursor pagination error handling uncovered
+
+**Why Must Have:** Zero coverage on a deployed scraper and an untested ASGI lifecycle
+are production reliability risks, not cosmetic debt. A bug in NOTAM parsing or a
+startup failure will go undetected. This must be resolved before the API is
+considered production-ready.
+
+**Acceptance Criteria:**
+- [ ] `scrapers/notams.py` reaches ≥85% coverage via `respx`-mocked HTTP tests:
+      - Happy path: valid NOTAM response parsed and persisted
+      - Keyword match: `ROCKET`, `MISSILE`, `SPACE LAUNCH` each trigger correct `launch_type`
+      - HTTP error (4xx/5xx): scraper logs error and returns empty result without raising
+      - Network timeout: scraper catches `httpx.TimeoutException` and logs gracefully
+- [ ] `scrapers/base.py` reaches 100% coverage:
+      - Abstract method enforcement test (instantiating `BaseScraper` raises `TypeError`)
+      - `ScrapeResult` fields and defaults tested
+- [ ] `main.py` ASGI lifecycle reaches ≥85% coverage:
+      - Lifespan startup success path: DB init called, scheduler started
+      - Lifespan startup with DB init failure: exception propagated cleanly
+      - Lifespan shutdown: `stop_scheduler()` and `close_db()` both called in order
+      - `configure_logging()` dev mode vs production mode branches
+- [ ] `api/v1/sources.py` reaches ≥85% coverage:
+      - Empty sources list returns `{"data": []}`
+      - Source with no attributions returns `event_count: 0`
+      - Source with attributions returns correct `event_count`
+      - DB error returns HTTP 500
+- [ ] `api/v1/launches.py` reaches ≥90% coverage:
+      - Cursor decode error on malformed `?cursor=` returns HTTP 422
+      - DB error on list endpoint returns HTTP 500
+      - `?min_confidence` boundary values (0.0, 1.0, out of range) tested
+      - `?location&radius_km` with invalid lat/lon returns HTTP 422
+- [ ] Overall project test coverage is ≥85% (currently below this for several modules)
+- [ ] All new tests use `pytest-asyncio` + `respx` for HTTP mocking; no real network calls
+
+**Status:** `pending`
+
+---
+
+### PO-024: API Key Authentication for Protected Endpoints
+
+**Priority:** Must Have  
+**Description:** Without any authentication, there is no mechanism to protect
+administrative or write operations. The admin endpoints planned in PO-016 require auth.
+More critically, exposing a completely open API to the public internet without any key
+mechanism prevents usage tracking and makes abuse mitigation impossible beyond IP rate
+limiting. Implement a lightweight, header-based API key system for protected routes.
+
+**Why Must Have:** The API cannot be safely exposed publicly without a minimal auth
+boundary. Admin operations (manual scrape triggers, source management) must be
+protected. This is also a prerequisite for PO-016 (admin endpoints).
+
+**Acceptance Criteria:**
+- [ ] `config.py` gains `ADMIN_API_KEY` setting (required env var, no default — app
+      refuses to start if unset and `REQUIRE_ADMIN_KEY=true`)
+- [ ] `src/openorbit/middleware/auth.py` implements `require_api_key` FastAPI dependency:
+      reads `X-API-Key` header; raises HTTP 401 with `{"error": "unauthorized"}` if missing
+      or incorrect; accepts correct key and lets request proceed
+- [ ] `GET /v1/admin/*` routes (future PO-016) are wired to `require_api_key` dependency
+      (or a placeholder admin router is created now for future use)
+- [ ] Public endpoints (`GET /v1/launches`, `GET /v1/launches/{id}`, `GET /v1/sources`,
+      `GET /health`) remain open — no key required
+- [ ] Invalid key returns HTTP 401; missing key returns HTTP 401; correct key allows access
+- [ ] Key comparison uses `secrets.compare_digest()` to prevent timing attacks
+- [ ] `docs/api.md` updated with an "Authentication" section explaining the header scheme
+- [ ] Integration tests cover: missing key → 401, wrong key → 401, correct key → 200,
+      public endpoint without key → 200
 
 **Status:** `pending`
 
@@ -330,119 +437,105 @@ Results annotate events with `inference_flags` (JSON array of applied rule names
 
 ## Should Have
 
-> Important for a production-quality service but not required for the MVP to function.
-
----
-
-### PO-012: Docker Deployment — Dockerfile & docker-compose
-
-**Priority:** Should Have  
-**Description:** Package the application as a Docker image so it can be deployed
-consistently across environments. Provide a `docker-compose.yml` for local development
-that starts the API and (optionally) a volume-mounted SQLite database. The image should
-be minimal (Python slim base), non-root, and configurable entirely via environment variables.
-
-**Acceptance Criteria:**
-- [ ] `Dockerfile` uses `python:3.12-slim`; multi-stage build (builder + runtime stages)
-- [ ] Image runs as a non-root user (`appuser`)
-- [ ] `docker-compose.yml` starts the API on `localhost:8000` with a volume for `data/`
-- [ ] `docker build -t openorbit:latest .` succeeds with no errors
-- [ ] `docker run --env-file .env openorbit:latest` starts the server and `/health` returns 200
-- [ ] Image size < 300 MB
-- [ ] `docs/deployment.md` documents Docker build, run, and compose commands
-- [ ] `.dockerignore` excludes `state/`, `.git/`, `__pycache__/`, test fixtures
-
-**Status:** `pending`
-
----
-
-### PO-013: API Rate Limiting, Pagination & Advanced Query Filtering
-
-**Priority:** Should Have  
-**Description:** Harden the public API with per-IP rate limiting (to prevent abuse),
-cursor-based pagination (to support large result sets efficiently), and additional
-filter parameters (provider name search, location proximity, confidence threshold).
-These features are needed for the API to be "usable for dashboards and analytics" at scale.
-
-**Acceptance Criteria:**
-- [ ] Rate limiting: 60 requests/minute per IP using `slowapi` or equivalent middleware
-- [ ] HTTP 429 returned with `Retry-After` header when rate limit exceeded
-- [ ] Cursor-based pagination: `?cursor=<opaque_token>` and `?limit=N` (max 100)
-      alongside existing page-based pagination
-- [ ] Additional filter: `?provider=<fuzzy_string>` (case-insensitive substring match)
-- [ ] Additional filter: `?min_confidence=<float>` filters events below threshold
-- [ ] Additional filter: `?location=<lat,lon>&radius_km=<int>` for proximity search
-- [ ] All new filters covered by integration tests
-- [ ] Rate limit headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`) included in responses
-
-**Status:** `pending`
-
----
-
-### PO-014: OpenAPI Documentation, Swagger UI & Developer Guide
-
-**Priority:** Should Have  
-**Description:** Produce complete, accurate API documentation that makes openOrbit
-usable for external developers building dashboards and analytics tools. FastAPI
-auto-generates the OpenAPI spec; this item enriches it with examples, descriptions,
-and a written developer guide in `docs/api.md`.
-
-**Acceptance Criteria:**
-- [ ] Every endpoint, query parameter, and response field has a docstring or `Field(description=…)`
-- [ ] `GET /docs` (Swagger UI) and `GET /redoc` are reachable and fully populated
-- [ ] `GET /openapi.json` returns a valid OpenAPI 3.1 spec
-- [ ] `docs/api.md` written with: overview, authentication (none for now), endpoint reference,
-      example `curl` requests and responses for each endpoint
-- [ ] `docs/api.md` includes a "Confidence Score" explainer section
-- [ ] `docs/api.md` includes a "Launch Type Classification" explainer section
-- [ ] Example response payloads in Swagger match actual API output (tested with snapshot test)
-
-**Status:** `pending`
-
----
-
-### PO-015: Modular Source Plugin Interface
-
-**Priority:** Should Have  
-**Description:** Refactor the scraper layer into a formal plugin interface so that
-new OSINT sources can be added by implementing a single abstract class and registering
-in `osint_sources` without touching core pipeline code. This fulfils the architectural
-constraint: *"Must be modular to allow adding new data sources over time."*
-
-**Acceptance Criteria:**
-- [ ] `src/openorbit/scrapers/base.py` defines `BaseScraper` abstract class with methods:
-      `async def fetch() -> list[RawRecord]` and `async def run() -> ScrapeResult`
-- [ ] All three existing scrapers (PO-003, PO-006, PO-007) refactored to extend `BaseScraper`
-- [ ] `ScraperRegistry` in `scrapers/registry.py` auto-discovers scrapers via entry points
-      or explicit registration; no core code changes needed to add a new source
-- [ ] `docs/adding-sources.md` written: step-by-step guide to adding a new OSINT scraper
-      (implement `BaseScraper`, add to `osint_sources`, register)
-- [ ] Adding a new mock scraper in tests requires only implementing `BaseScraper` — verified
-      by a test that registers a `MockScraper` and runs the full pipeline
-- [ ] Existing tests still pass after refactor (no regressions)
-
-**Status:** `pending`
+> Important for a production-quality service; deferred from Must Have but should land
+> before the product is widely promoted.
 
 ---
 
 ### PO-016: Admin & Source Health Monitoring Endpoints
 
 **Priority:** Should Have  
-**Description:** Provide a lightweight admin surface (protected by a static API key)
-for operators to inspect source health, trigger manual scrape runs, and view system
-statistics without database access. This makes the running service observable and
-operable without SSH access.
+**Description:** Lightweight admin surface (protected by `X-API-Key` from PO-024) for
+operators to inspect source health, trigger manual scrape runs, and view system
+statistics — without needing SSH or database access.
+
+**Depends on:** PO-024 (API key auth)
 
 **Acceptance Criteria:**
 - [ ] `GET /v1/admin/sources` lists all sources with last-run status, event counts,
-      error rates (protected by `X-Admin-Key` header; key set via env var)
-- [ ] `POST /v1/admin/sources/{id}/refresh` triggers an immediate scrape of a single source
-- [ ] `GET /v1/admin/stats` returns: total events, events per source, events per launch type,
+      error rates (requires valid `X-API-Key`)
+- [ ] `POST /v1/admin/sources/{id}/refresh` triggers immediate scrape of a single source
+- [ ] `GET /v1/admin/stats` returns: total events, events per source, per launch type,
       average confidence score, last full refresh timestamp
-- [ ] HTTP 401 returned when `X-Admin-Key` is missing or incorrect
-- [ ] Admin endpoints excluded from public `/docs` (use `include_in_schema=False`) or
-      guarded by a separate OpenAPI tag labelled "Admin (key required)"
-- [ ] Integration tests cover: authenticated access, unauthenticated rejection, manual refresh
+- [ ] HTTP 401 when `X-API-Key` missing or wrong; HTTP 404 when source ID not found
+- [ ] Admin routes tagged separately in OpenAPI ("Admin — key required")
+- [ ] Integration tests: authenticated access, unauthenticated rejection, manual refresh,
+      refresh of non-existent source returns 404
+
+**Status:** `pending`
+
+---
+
+### PO-017: Fourth OSINT Source — News & OSINT Aggregator Scraper
+
+**Priority:** Should Have  
+**Description:** `goal.md` explicitly lists "News and OSINT aggregators" as a fourth
+planned source alongside space agencies, commercial providers, and NOTAMs. Adding it
+completes the original source plan, increases confidence scoring diversity, and
+exercises the plugin interface from PO-015 as a real-world validation.
+
+**Depends on:** PO-015 (plugin interface must be in place)
+
+**Acceptance Criteria:**
+- [ ] `src/openorbit/scrapers/news.py` implements `NewsAggregatorScraper` extending `BaseScraper`
+- [ ] Scraper targets ≥2 public RSS feeds (e.g. SpaceFlightNow.com, NASASpaceflight.com)
+- [ ] Parsed articles matched to existing events via fuzzy provider + date entity linking
+- [ ] New source auto-registered via `ScraperRegistry`; scheduler picks it up without
+      any changes to scheduler code
+- [ ] Unit tests with mocked RSS/HTML responses; ≥2 sample payloads
+- [ ] `osint_sources` table gains a row for each RSS feed; total sources in system ≥4
+- [ ] `GET /v1/sources` correctly reflects the new source with its `last_scraped_at`
+
+**Status:** `pending`
+
+---
+
+### PO-025: PostgreSQL Migration Path — Schema & Connection Abstraction
+
+**Priority:** Should Have  
+**Description:** `goal.md` states the database is "SQLite (initial) → optional
+PostgreSQL later." The current `db.py` uses `aiosqlite` directly, with SQLite-specific
+syntax in several queries. This item adds a connection abstraction that swaps backends
+via `DATABASE_URL`, validates the schema is PostgreSQL-compatible, and provides a
+migration guide — making the eventual move to PostgreSQL a configuration change, not a
+rewrite.
+
+**Acceptance Criteria:**
+- [ ] `DATABASE_URL` env var (e.g. `sqlite+aiosqlite:///...` or `postgresql+asyncpg://...`)
+      controls which backend `db.py` uses
+- [ ] `schema.sql` reviewed and updated so all SQL is ANSI-compatible; any SQLite-specific
+      syntax (e.g. `AUTOINCREMENT`) replaced with portable equivalents
+- [ ] `db.py` uses an abstraction layer (e.g. `databases` library or thin adapter) that
+      passes identical queries to both backends without duplication
+- [ ] `docker-compose.yml` gains an optional `postgres` service profile; switching from
+      SQLite to PostgreSQL requires only changing `DATABASE_URL`
+- [ ] `docs/deployment.md` updated with PostgreSQL setup instructions
+- [ ] Integration test suite runs against both SQLite (default) and PostgreSQL (via
+      `pytest --db-backend=postgres` marker); all tests pass on both
+
+**Status:** `pending`
+
+---
+
+### PO-026: CI/CD Pipeline — Automated Testing & Linting Gate
+
+**Priority:** Should Have  
+**Description:** There is currently no automated gate preventing broken code from
+reaching `main`. For a production API that aggregates OSINT data on a schedule, an
+undetected regression in a scraper or the API layer could silently corrupt data.
+A CI pipeline running on every pull request is the minimum safety net needed before
+wider promotion of the API.
+
+**Acceptance Criteria:**
+- [ ] `.github/workflows/ci.yml` (or equivalent) runs on every PR and push to `main`
+- [ ] CI pipeline steps: `uv sync` → `ruff check` (lint) → `ruff format --check` →
+      `mypy` (type check) → `pytest --cov=openorbit --cov-fail-under=85`
+- [ ] Pipeline fails and blocks merge if any step fails or coverage drops below 85%
+- [ ] Workflow caches `uv` dependencies for fast runs (< 3 min total target)
+- [ ] `README.md` updated with a CI status badge
+- [ ] `pyproject.toml` already defines `[tool.ruff]`, `[tool.mypy]`, and `[tool.pytest]`
+      sections; CI uses these directly (no duplicated config)
+- [ ] Docker build step (`docker build .`) included in CI to catch `Dockerfile` regressions
 
 **Status:** `pending`
 
@@ -450,27 +543,8 @@ operable without SSH access.
 
 ## Could Have
 
-> Valuable enhancements if sprint capacity allows; deferred without product risk.
-
----
-
-### PO-017: Fourth+ OSINT Source — News & Open-Source Intel Aggregators
-
-**Priority:** Could Have  
-**Description:** Add a fourth scraper targeting publicly available news and OSINT
-aggregator sources such as SpaceFlightNow.com, NASASpaceflight.com, or public RSS
-feeds from space news outlets. This increases source diversity and improves confidence
-scoring for civilian launches. Feeds through the same `BaseScraper` plugin interface.
-
-**Acceptance Criteria:**
-- [ ] `src/openorbit/scrapers/news.py` implements `NewsAggregatorScraper`
-- [ ] Scraper targets ≥2 public RSS feeds or news pages
-- [ ] Parsed articles matched to existing events via entity linking (provider + date fuzzy match)
-- [ ] New source registered in `osint_sources`; scheduler picks it up automatically
-- [ ] Unit tests with mocked RSS/HTML responses
-- [ ] Total OSINT sources in system reaches ≥4
-
-**Status:** `pending`
+> Valuable analytics features deferred without product risk. Implement only if sprint
+> capacity allows after all Must Have and Should Have items are complete.
 
 ---
 
@@ -478,17 +552,17 @@ scoring for civilian launches. Feeds through the same `BaseScraper` plugin inter
 
 **Priority:** Could Have  
 **Description:** Track how launch events change over time (date slips, status changes,
-vehicle swaps). Each significant change is recorded in an `event_history` table, and
-the API exposes a `GET /v1/launches/{id}/history` endpoint showing the change log.
-This is valuable for analytics dashboards tracking launch reliability and scheduling trends.
+vehicle swaps). Each significant change recorded in an `event_history` table.
+`GET /v1/launches/{id}/history` exposes the change log. Valuable for analytics
+dashboards tracking scheduling reliability trends.
 
 **Acceptance Criteria:**
 - [ ] `event_history` table: `(id, launch_event_id, field_changed, old_value, new_value, changed_at, source_id)`
-- [ ] `upsert_launch_event()` writes history records whenever `launch_date`, `status`,
+- [ ] `upsert_launch_event()` writes history records when `launch_date`, `status`,
       `vehicle`, or `confidence_score` changes by more than a configurable threshold
 - [ ] `GET /v1/launches/{id}/history` returns chronological list of changes
 - [ ] History records are append-only (never deleted)
-- [ ] Unit tests assert history written on status change but not on no-op upsert
+- [ ] Unit tests: history written on status change; no history written on no-op upsert
 
 **Status:** `pending`
 
@@ -497,18 +571,15 @@ This is valuable for analytics dashboards tracking launch reliability and schedu
 ### PO-019: Webhook / Server-Sent Events for Launch Updates
 
 **Priority:** Could Have  
-**Description:** Allow API consumers to subscribe to real-time (near-real-time) launch
-event updates via Server-Sent Events (SSE) or configurable webhooks. When the scheduler
-detects a new or changed event, subscribers are notified. This enables dashboard
-consumers to avoid polling.
+**Description:** Allow API consumers to subscribe to near-real-time launch event
+updates via SSE or configurable webhooks. Eliminates consumer polling. Webhook
+delivery with exponential-backoff retry. Feature-flagged via `ENABLE_STREAMING`.
 
 **Acceptance Criteria:**
-- [ ] `GET /v1/launches/stream` returns an SSE stream; new/updated events emitted as
-      `data: <JSON>\n\n` when detected by the refresh cycle
-- [ ] `POST /v1/webhooks` registers a webhook URL; `DELETE /v1/webhooks/{id}` removes it
-- [ ] Webhook delivers `POST` to registered URL with launch event JSON payload on change
-- [ ] Webhook retries up to 3 times on delivery failure with exponential backoff
-- [ ] SSE and webhook features behind a feature flag (`ENABLE_STREAMING=true`)
+- [ ] `GET /v1/launches/stream` returns SSE stream; events emitted on new/updated launches
+- [ ] `POST /v1/webhooks` registers a URL; `DELETE /v1/webhooks/{id}` removes it
+- [ ] Webhook delivers `POST` with launch event JSON; retries up to 3× on failure
+- [ ] Feature flag `ENABLE_STREAMING=true` required; endpoints 404 when disabled
 - [ ] Integration test: mock webhook receiver asserts payload delivery
 
 **Status:** `pending`
@@ -517,7 +588,7 @@ consumers to avoid polling.
 
 ## Won't Have (this release)
 
-> Explicitly out of scope. Documenting these prevents scope creep.
+> Explicitly out of scope. Documented here to prevent scope creep.
 
 ---
 
@@ -535,7 +606,7 @@ All launch type classification is based solely on publicly available OSINT.
 ### PO-021: Frontend Web Application or Dashboard
 
 **Priority:** Won't Have  
-**Description:** A web-based user interface, map visualization, or analytics dashboard.
+**Description:** A web-based UI, map visualization, or analytics dashboard.
 The project is API-first. Consumers build their own frontends against the REST API.
 
 **Status:** `pending`
@@ -547,6 +618,8 @@ The project is API-first. Consumers build their own frontends against the REST A
 **Priority:** Won't Have  
 **Description:** Any feature that supports weapon targeting, real-time defense decision
 support, or actionable military intelligence. Explicitly prohibited by project constraints.
+
+**Status:** `pending`
 
 **Status:** `pending`
 

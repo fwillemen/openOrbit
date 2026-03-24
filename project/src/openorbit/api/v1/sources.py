@@ -13,7 +13,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["sources"])
 
 
-@router.get("/sources")
+@router.get(
+    "/sources",
+    tags=["sources"],
+    summary="List OSINT sources",
+    description=(
+        "Return the full registry of OSINT data sources tracked by openOrbit, "
+        "including enabled/disabled status, refresh schedule, last scrape timestamp, "
+        "and the number of launch events attributed to each source."
+    ),
+    response_description="Object with `data` array of source records.",
+)
 async def list_sources() -> dict[str, list[dict[str, object]]]:
     """Return all OSINT sources with event counts.
 

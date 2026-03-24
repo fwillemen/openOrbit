@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     SCRAPER_TIMEOUT_SECONDS: int = 30
     SCRAPER_MAX_RETRIES: int = 3
 
+    # Authentication
+    OPENORBIT_ADMIN_KEY: str | None = None
+
 
 _settings: Settings | None = None
 

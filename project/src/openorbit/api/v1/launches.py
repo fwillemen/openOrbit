@@ -139,7 +139,23 @@ def _build_launch_response(
     )
 
 
-@router.get("/launches", response_model=PaginatedLaunchResponse)
+@router.get(
+    "/launches",
+    response_model=PaginatedLaunchResponse,
+    tags=["launches"],
+    summary="List launch events",
+    description=(
+        "Return a paginated list of orbital launch events. "
+        "Supports filtering by date range, provider, launch type, status, confidence score, "
+        "inference flags, and proximity (lat/lon + radius). "
+        "Use **cursor-based** pagination (`cursor` + `limit`) for stable iteration over large "
+        "result sets, or **page-based** pagination (`page` + `per_page`) for simpler use cases."
+    ),
+    response_description="Paginated array of launch events with pagination metadata.",
+    responses={
+        400: {"description": "Invalid `location` format or invalid `cursor` token."},
+    },
+)
 async def list_launches(
     from_date: Annotated[datetime | None, Query(alias="from")] = None,
     to_date: Annotated[datetime | None, Query(alias="to")] = None,
@@ -314,7 +330,21 @@ async def list_launches(
     return PaginatedLaunchResponse(data=data, meta=meta)
 
 
-@router.get("/launches/{slug}", response_model=LaunchEventResponse)
+@router.get(
+    "/launches/{slug}",
+    response_model=LaunchEventResponse,
+    tags=["launches"],
+    summary="Get launch event by slug",
+    description=(
+        "Retrieve a single launch event identified by its URL-safe slug. "
+        "The response includes the full source attribution array showing which OSINT "
+        "sources confirmed this event."
+    ),
+    response_description="Full launch event with sources populated.",
+    responses={
+        404: {"description": "No launch event found for the given slug."},
+    },
+)
 async def get_launch(slug: str) -> LaunchEventResponse:
     """Retrieve a single launch event by slug.
 
