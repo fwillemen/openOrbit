@@ -125,7 +125,8 @@ def create_app() -> FastAPI:
             "Aggregates launch data from multiple open-source intelligence sources, "
             "providing a unified REST API for launch schedules, provider information, "
             "and historical launch data.\n\n"
-            "All `GET` endpoints are **public**. Write operations require an `X-API-Key` header."
+            "All `GET` endpoints are **public**. "
+            "Write operations require an `X-API-Key` header."
         ),
         version=settings.VERSION,
         lifespan=lifespan,

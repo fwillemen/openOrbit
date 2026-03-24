@@ -146,10 +146,11 @@ def _build_launch_response(
     summary="List launch events",
     description=(
         "Return a paginated list of orbital launch events. "
-        "Supports filtering by date range, provider, launch type, status, confidence score, "
-        "inference flags, and proximity (lat/lon + radius). "
-        "Use **cursor-based** pagination (`cursor` + `limit`) for stable iteration over large "
-        "result sets, or **page-based** pagination (`page` + `per_page`) for simpler use cases."
+        "Supports filtering by date range, provider, launch type, status, "
+        "confidence score, inference flags, and proximity (lat/lon + radius). "
+        "Use **cursor-based** pagination (`cursor` + `limit`) for stable iteration "
+        "over large result sets, or **page-based** pagination "
+        "(`page` + `per_page`) for simpler use cases."
     ),
     response_description="Paginated array of launch events with pagination metadata.",
     responses={

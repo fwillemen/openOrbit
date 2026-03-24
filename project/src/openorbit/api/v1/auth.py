@@ -33,7 +33,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
         "and is never stored — only the PBKDF2-SHA256 hash and salt are persisted. "
         "Requires an admin API key in the `X-API-Key` header."
     ),
-    response_description="Created key details including the plaintext key (shown once only).",
+    response_description=(
+        "Created key details including the plaintext key (shown once only)."
+    ),
     responses={
         401: {"description": "Missing API key."},
         403: {"description": "Invalid, revoked, or non-admin API key."},
