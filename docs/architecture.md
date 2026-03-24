@@ -86,6 +86,39 @@ Generated projects use these defaults unless the goal specifies otherwise:
 
 ---
 
+## Scraper Plugin System
+
+openOrbit uses a plugin architecture for OSINT data collection. All scrapers inherit from
+`BaseScraper` (ABC) and are auto-registered in a global `ScraperRegistry` singleton via
+Python's `__init_subclass__` hook — no manual wiring required.
+
+```
+BaseScraper (ABC)  ──__init_subclass__──►  ScraperRegistry (singleton)
+                                                    │
+                                          ┌─────────┼────────────┐
+                                   space_agency  commercial   notams
+```
+
+Key components:
+
+| Module | Role |
+|--------|------|
+| `openorbit.scrapers.base` | `BaseScraper` ABC — defines `scrape()`, `parse()`, and ClassVars |
+| `openorbit.scrapers.registry` | `ScraperRegistry` singleton — `register()`, `get_all()`, `get_by_name()` |
+| `openorbit.scrapers.__init__` | Imports all concrete scrapers to trigger auto-registration |
+
+The `GET /v1/sources` endpoint and the background scheduler both consume
+`registry.get_all()`, so adding a new scraper only requires:
+
+1. Subclassing `BaseScraper`
+2. Defining `source_name` and `source_url` ClassVars
+3. Implementing `scrape()` and `parse()`
+4. Importing the module in `scrapers/__init__.py`
+
+→ See [`docs/scrapers/plugin-interface.md`](scrapers/plugin-interface.md) for the full guide.
+
+---
+
 ## Extending the Framework
 
 ### Adding a new agent

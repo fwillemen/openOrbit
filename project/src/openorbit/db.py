@@ -31,10 +31,46 @@ from openorbit.models.db import (
     LaunchEventCreate,
     OSINTSource,
 )
+from openorbit.tiering import ResultTier, result_tier_sql_expr
 
 logger = logging.getLogger(__name__)
 
 _db_connection: aiosqlite.Connection | None = None
+_SQLITE_URL_PREFIX = "sqlite+aiosqlite:///"
+
+
+def resolve_sqlite_db_path(database_url: str) -> str:
+    """Resolve SQLite DATABASE_URL to a deterministic DB path.
+
+    Relative filesystem paths are resolved against the project root (``project/``)
+    so commands executed from different working directories still use one DB file.
+
+    Args:
+        database_url: SQLAlchemy-style SQLite URL.
+
+    Returns:
+        Resolved sqlite path string, or special sqlite target (e.g. ``:memory:``).
+
+    Raises:
+        ValueError: If URL is not a sqlite+aiosqlite URL.
+    """
+    if not database_url.startswith(_SQLITE_URL_PREFIX):
+        raise ValueError(
+            "DATABASE_URL must start with 'sqlite+aiosqlite:///' for SQLite mode"
+        )
+
+    raw_path = database_url.removeprefix(_SQLITE_URL_PREFIX)
+
+    # Keep special SQLite targets untouched.
+    if raw_path == ":memory:" or raw_path.startswith("file:"):
+        return raw_path
+
+    candidate = Path(raw_path)
+    if candidate.is_absolute():
+        return str(candidate)
+
+    project_root = Path(__file__).resolve().parents[2]
+    return str((project_root / candidate).resolve())
 
 
 async def init_db() -> None:
@@ -46,8 +82,7 @@ async def init_db() -> None:
     global _db_connection
 
     settings = get_settings()
-    # Extract file path from DATABASE_URL (format: sqlite+aiosqlite:///./openorbit.db)
-    db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+    db_path = resolve_sqlite_db_path(settings.DATABASE_URL)
 
     logger.info(f"Initializing database at {db_path}")
 
@@ -543,6 +578,7 @@ async def get_launch_events(
     status: str | None = None,
     launch_type: str | None = None,
     min_confidence: float | None = None,
+    result_tier: ResultTier | None = None,
     has_inference_flag: str | None = None,
     cursor_id: int | None = None,
     limit: int = 100,
@@ -558,6 +594,7 @@ async def get_launch_events(
         status: Filter by event status.
         launch_type: Filter by launch type.
         min_confidence: Minimum confidence_score (inclusive).
+        result_tier: Filter by derived result tier.
         has_inference_flag: Filter to events containing this flag in inference_flags.
         cursor_id: Cursor-based pagination — return rows with rowid > cursor_id.
         limit: Maximum number of results (default: 100).
@@ -599,6 +636,10 @@ async def get_launch_events(
     if min_confidence is not None:
         query += " AND confidence_score >= ?"
         params.append(min_confidence)
+
+    if result_tier:
+        query += f" AND ({result_tier_sql_expr('e')}) = ?"
+        params.append(result_tier)
 
     if has_inference_flag:
         query += " AND inference_flags LIKE ?"
@@ -652,6 +693,7 @@ async def count_launch_events(
     status: str | None = None,
     launch_type: str | None = None,
     min_confidence: float | None = None,
+    result_tier: ResultTier | None = None,
     has_inference_flag: str | None = None,
 ) -> int:
     """Count launch events matching the given filters.
@@ -667,12 +709,13 @@ async def count_launch_events(
         status: Filter by event status.
         launch_type: Filter by launch type.
         min_confidence: Minimum confidence_score (inclusive).
+        result_tier: Filter by derived result tier.
         has_inference_flag: Filter to events containing this flag in inference_flags.
 
     Returns:
         Total count of matching launch events.
     """
-    query = "SELECT COUNT(*) FROM launch_events WHERE 1=1"
+    query = "SELECT COUNT(*) FROM launch_events e WHERE 1=1"
     params: list[str | int | float] = []
 
     if date_from:
@@ -698,6 +741,10 @@ async def count_launch_events(
     if min_confidence is not None:
         query += " AND confidence_score >= ?"
         params.append(min_confidence)
+
+    if result_tier:
+        query += f" AND ({result_tier_sql_expr('e')}) = ?"
+        params.append(result_tier)
 
     if has_inference_flag:
         query += " AND inference_flags LIKE ?"

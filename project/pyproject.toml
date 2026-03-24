@@ -86,6 +86,7 @@ select = [
 ]
 ignore = [
     "B008",  # Allow function calls in argument defaults (FastAPI dependency injection pattern)
+    "E501",  # Line too long — docstrings and descriptions may exceed 88 chars
 ]
 
 [tool.ruff.lint.isort]

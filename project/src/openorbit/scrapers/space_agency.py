@@ -17,8 +17,8 @@ import httpx
 
 from openorbit.config import get_settings
 from openorbit.db import (
-
     add_attribution,
+    close_db,
     get_db,
     get_osint_sources,
     init_db,
@@ -345,14 +345,18 @@ async def main() -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    scraper = SpaceAgencyScraper()
-    result = await scraper.scrape()
+    try:
+        scraper = SpaceAgencyScraper()
+        result = await scraper.scrape()
 
-    print("\n=== Launch Library 2 Scrape Summary ===")
-    print(f"Total events fetched: {result['total_fetched']}")
-    print(f"New events created: {result['new_events']}")
-    print(f"Existing events updated: {result['updated_events']}")
-    print("=" * 40)
+        print("\n=== Launch Library 2 Scrape Summary ===")
+        print(f"Total events fetched: {result['total_fetched']}")
+        print(f"New events created: {result['new_events']}")
+        print(f"Existing events updated: {result['updated_events']}")
+        print("=" * 40)
+    finally:
+        # Ensure process can terminate cleanly after one-shot CLI usage.
+        await close_db()
 
 
 if __name__ == "__main__":

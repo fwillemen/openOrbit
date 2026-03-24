@@ -233,3 +233,4 @@ mkdir -p state/handoffs/<sprint_id>
 
 <!-- RETRO sprint-1: PO-002 had 5 bare `assert` statements in production guards (db.py validation functions) — always use `raise RuntimeError(...)` or `raise ValueError(...)` instead of `assert` for runtime validation; asserts are stripped by Python -O flag and should only be used for debugging -->
 <!-- RETRO sprint-1: Self-run `ruff check --fix src/ tests/` and `mypy --strict src/` before writing programmer.json handoff — this reduces code review fix cycles (PO-001 and PO-003 both passed code review on first attempt) -->
+

@@ -5,9 +5,9 @@ from __future__ import annotations
 import importlib
 import logging
 
-import openorbit.scrapers  # noqa: F401 — triggers scraper registration
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+import openorbit.scrapers  # noqa: F401 — triggers scraper registration
 from openorbit.db import get_db, get_osint_sources
 from openorbit.scrapers.registry import registry
 

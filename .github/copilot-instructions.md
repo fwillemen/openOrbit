@@ -5,6 +5,44 @@ This is a semi-autonomous development framework. A fleet of **eight specialized 
 (defined in `.github/agents/`) collaborates to build software from a high-level goal stored in
 `state/goal.md`. Read `AGENTS.md` for the full delegation chain and agent details.
 
+## openOrbit Source Strategy (Current)
+For the generated `project/` in this repository, prefer **non-credentialed official/public feeds**
+and keep source integration additive and traceable via attributions.
+
+Current launch-intelligence sources in `project/src/openorbit/scrapers/`:
+- `space_agency` (Launch Library 2)
+- `spacex_official` (SpaceX API v4)
+- `celestrak` (CelesTrak last-30-days GP feed)
+- Regional public feed adapters: `esa_official`, `jaxa_official`, `isro_official`,
+  `arianespace_official`, `cnsa_official`
+
+When adding new sources for openOrbit:
+- Prefer official/public non-credentialed endpoints first.
+- Reuse the shared public feed adapter (`public_feed.py`) where possible.
+- Keep status, vehicle, and location normalization source-specific and tested.
+- Update `project/README.md` and relevant docs under `docs/scrapers/` in the same change.
+
+## Result Tiering Strategy (Dashboard Readiness)
+Launch-event consumers (including dashboard views) rely on a stable, explainable
+three-tier model. Treat result-tier behavior as a contract when changing launch,
+attribution, or confidence logic.
+
+Canonical implementation points:
+- Tier logic: `project/src/openorbit/tiering.py`
+- Launch API response fields: `project/src/openorbit/models/api.py`
+- Tier filtering: `project/src/openorbit/api/v1/launches.py` and `project/src/openorbit/db.py`
+
+Current tier semantics:
+- `verified`: confidence >= 80 and at least 2 attributions
+- `tracked`: confidence >= 60
+- `emerging`: all other events
+
+When changing tier/confidence behavior:
+- Keep SQL filtering and Python classification in sync.
+- Preserve response fields `result_tier` and `evidence_count` unless the goal explicitly changes API shape.
+- Update `project/tests/test_api_launches.py` for any tiering behavior changes.
+- Update `project/README.md` and `docs/api-reference.md` in the same change.
+
 ## Agent Roster (Quick Reference)
 | Agent | File | When invoked |
 |-------|------|-------------|

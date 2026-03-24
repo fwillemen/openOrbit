@@ -11,6 +11,13 @@ openOrbit is a modern REST API service that aggregates and tracks orbital launch
 - 🗄️ **SQLite Database Layer** — 4-table schema with full-text search, multi-source attribution, and confidence scoring
 - 📊 **13 Repository Functions** — Type-safe async database access with Pydantic models
 - 🛰️ **Space Agency Launch Scraper** — Automated data collection from Launch Library 2 API with retry logic and attribution tracking
+- 🚀 **Official SpaceX Source** — Direct ingestion from SpaceX API v4 for primary-source mission updates
+- 🌍 **CelesTrak Public Feed** — Non-credentialed recent-launch ingest from CelesTrak GP dataset
+- 🇪🇺 **ESA Official Adapter** — Public ESA feed connector for European launch-related updates
+- 🇯🇵 **JAXA Official Adapter** — Public JAXA feed connector for Japanese launch-related updates
+- 🇮🇳 **ISRO Official Adapter** — Public ISRO feed connector for Indian launch-related updates
+- 🇪🇺 **Arianespace Adapter** — Public Arianespace feed connector for European commercial launch updates
+- 🇨🇳 **CNSA Adapter** — Public CNSA feed connector for Chinese launch-related updates
 - 🔄 **Data Normalization Pipeline** — Converts raw scraper dicts into canonical `LaunchEvent` models with provider alias resolution, pad geo-enrichment, and multi-format date parsing
 - 🔄 **Async Architecture** — Non-blocking I/O for high-performance data collection
 - 📝 **Structured Logging** — JSON logs for production, pretty console for dev
@@ -125,6 +132,25 @@ For full details — including revoking keys and error codes — see [docs/auth.
 
 For the full API reference including query parameters and response schemas, see [docs/api-reference.md](../docs/api-reference.md).  
 Interactive docs (try-it-out): **http://localhost:8000/docs**
+
+### Launch Result Tiers (Dashboard-Friendly)
+
+`GET /v1/launches` and `GET /v1/launches/{slug}` now include two fields that help dashboards segment results:
+
+- `result_tier` — one of `emerging`, `tracked`, `verified`
+- `evidence_count` — number of source attributions for that event
+
+You can also filter directly by tier:
+
+```bash
+curl -s "http://localhost:8000/v1/launches?result_tier=verified" | python -m json.tool
+```
+
+Tier logic:
+
+- `verified`: confidence >= 80 and at least 2 independent attributions
+- `tracked`: confidence >= 60
+- `emerging`: lower-confidence early signal
 
 ---
 
@@ -251,7 +277,166 @@ cd project
 uv run python -m openorbit.scrapers.space_agency
 ```
 
+This is a one-shot command. It fetches data, upserts launch events, prints a summary, and exits.
+If you run it again shortly after, you will usually see mostly "updated" events and few "new" events.
+
+### What to Do After Scraping
+
+1. Start the API server:
+
+```bash
+cd project
+uv run uvicorn openorbit.main:app --reload
+```
+
+2. In another terminal, query the scraped events:
+
+```bash
+curl -s http://localhost:8000/v1/launches | python -m json.tool | head -n 60
+```
+
+3. Check source metadata and last scrape timestamp:
+
+```bash
+curl -s http://localhost:8000/v1/sources | python -m json.tool
+```
+
+4. (Optional) Verify event count directly in SQLite:
+
+```bash
+cd project
+python - <<'PY'
+import sqlite3
+
+conn = sqlite3.connect("openorbit.db")
+count = conn.execute("SELECT COUNT(*) FROM launch_events").fetchone()[0]
+print(f"launch_events rows: {count}")
+conn.close()
+PY
+```
+
 See [docs/scrapers/space-agency.md](../docs/scrapers/space-agency.md) for configuration and detailed documentation.
+
+### Running Official SpaceX Source
+
+For a primary-source feed, run the SpaceX official API scraper:
+
+```bash
+cd project
+uv run python -m openorbit.scrapers.spacex_official
+```
+
+Then verify source coverage:
+
+```bash
+curl -s http://localhost:8000/v1/sources | python -m json.tool
+```
+
+### Running CelesTrak Public Source
+
+For a non-credentialed corroboration source of recently launched objects:
+
+```bash
+cd project
+uv run python -m openorbit.scrapers.celestrak
+```
+
+This uses CelesTrak's public `last-30-days` GP feed and aggregates payload records
+into launch-level events before upserting.
+
+### Running EU and Asia Feed Adapters
+
+All of the following are non-credentialed connectors:
+
+```bash
+cd project
+
+uv run python -m openorbit.scrapers.esa_official
+uv run python -m openorbit.scrapers.jaxa_official
+uv run python -m openorbit.scrapers.isro_official
+uv run python -m openorbit.scrapers.arianespace_official
+uv run python -m openorbit.scrapers.cnsa_official
+```
+
+Each adapter ingests RSS/Atom-like public feed entries and maps launch-related items
+into canonical launch events.
+
+### Understanding `/v1/sources` Output
+
+The `/v1/sources` endpoint currently merges two source views:
+
+1. **DB-backed source rows**
+  - Have a numeric `id`
+  - Have real `event_count` / `last_scraped_at`
+
+2. **Registry placeholder rows**
+  - Have `id: null`
+  - Represent available scraper modules that may not have been registered in DB yet
+  - Typically show `event_count: 0`
+
+This means you may see both a human-readable DB source name (for example
+`SpaceX API v4`) and a module-style registry name (for example
+`spacex_official`) in the same response.
+
+### Connector Coverage Profile
+
+The table below summarizes what each current connector contributes.
+
+| Connector | Primary Signal | Time Horizon | Structured Quality | Strengths | Limitations |
+|----------|----------------|--------------|--------------------|-----------|-------------|
+| `space_agency` (Launch Library 2) | Aggregated launch schedule API | Upcoming + near-term updates | High | Broad global coverage, rich launch metadata | Aggregator (not always first-party official) |
+| `spacex_official` (SpaceX API v4) | Official operator launch data | Upcoming + mission updates | High | First-party for SpaceX launches, strong timeliness | SpaceX-only scope |
+| `celestrak` (last-30-days GP) | Post-launch object catalog activity | Recent launches (last ~30 days) | Medium-High | Strong corroboration of recent launched activity | Not a future launch schedule feed |
+| `notams` (FAA) | Airspace/regulatory launch indicators | Pre-launch + operational windows | Medium | Useful corroboration and launch window signals | Region/format constraints; indirect launch metadata |
+| `esa_official` | Official agency publication feed | Announcement-driven | Medium | High trust source for ESA-related missions | RSS/news text requires inference, less structured |
+| `jaxa_official` | Official agency publication feed | Announcement-driven | Medium | High trust source for JAXA-related missions | RSS/news text requires inference, less structured |
+| `isro_official` | Official agency publication feed | Announcement-driven | Medium | High trust source for ISRO-related missions | RSS/news text requires inference, less structured |
+| `arianespace_official` | Official operator publication feed | Announcement-driven | Medium | High trust for Arianespace mission updates | Feed granularity varies; less structured launch fields |
+| `cnsa_official` | Official/state publication feed | Announcement-driven | Medium-Low to Medium | Geographic coverage expansion for China missions | Feed consistency and structure can vary over time |
+
+Practical takeaway: combine structured APIs (`space_agency`, `spacex_official`) with
+corroboration feeds (`celestrak`, `notams`, regional official feeds) for the best
+balance between coverage, trust, and timeliness.
+
+### Intelligence Collection Blueprint
+
+If your goal is broad launch intelligence (including low-visibility activity), use a
+layered model instead of relying on a single feed type.
+
+#### Signal Tiers
+
+| Tier | Signal Type | Example Sources | Typical Value |
+|------|-------------|-----------------|---------------|
+| Tier 1 | Official / operator / regulator | SpaceX API, agency official feeds, FAA notices | High-trust baseline facts |
+| Tier 2 | Operational corroboration | CelesTrak post-launch objects, range/airspace indicators | Confirms or challenges Tier 1 |
+| Tier 3 | Analyst/speculation channels | Reputable expert commentary and specialist media | Early weak signals, hypothesis generation |
+
+#### Claim Lifecycle
+
+Track event confidence as a lifecycle, not a boolean:
+
+1. `rumor` — single weak-signal mention
+2. `indicated` — one operational signal or multiple independent mentions
+3. `corroborated` — at least two independent source classes agree
+4. `confirmed` — direct official/operator or strong post-event evidence
+5. `retracted` — contradicted by stronger evidence
+
+#### Confidence Rules (Practical)
+
+1. Never mark `confirmed` from one speculative source.
+2. Require cross-class corroboration for escalation (for example: feed + NOTAM, or
+  feed + CelesTrak).
+3. Keep attribution and timestamps for every assertion (who said what, when).
+4. Preserve contradictory claims instead of overwriting history.
+
+#### What This Enables
+
+With this approach, openOrbit can support:
+
+- Detection of not-yet-prominent launch activity
+- Separation of facts from hypotheses
+- Progressive confidence updates as new evidence arrives
+- Explainable outputs backed by source provenance
 
 ### Adding a New Scraper
 

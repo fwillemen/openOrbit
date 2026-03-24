@@ -258,3 +258,4 @@ Then re-invoke the missing agent before proceeding.
 
 <!-- RETRO sprint-1: SM instance hit rate-limit mid-sprint during PO-003; recovery required manual intervention — write `sprint_items` DB checkpoint (set programmer_done=1, code_review_done=1, etc.) IMMEDIATELY after each sub-agent returns, before invoking next agent; this makes any resumed SM instance idempotent and allows automatic recovery -->
 <!-- RETRO sprint-1: `code_reviews` table was not populated this sprint (logged externally only) — ensure code-reviewer agent INSERT results into fleet.db so retrospective agent has structured metrics -->
+

@@ -6,6 +6,7 @@ Defines Pydantic response schemas decoupled from DB and pipeline models.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -66,6 +67,8 @@ class LaunchEventResponse(BaseModel):
                 "launch_type": "civilian",
                 "status": "scheduled",
                 "confidence_score": 87.5,
+                "result_tier": "verified",
+                "evidence_count": 3,
                 "created_at": "2025-01-20T08:00:00Z",
                 "updated_at": "2025-01-22T09:15:00Z",
                 "sources": [
@@ -92,6 +95,8 @@ class LaunchEventResponse(BaseModel):
     launch_type: str
     status: str
     confidence_score: float
+    result_tier: Literal["emerging", "tracked", "verified"]
+    evidence_count: int
     created_at: datetime
     updated_at: datetime
     sources: list[AttributionResponse] = []
@@ -118,6 +123,8 @@ class PaginatedLaunchResponse(BaseModel):
                         "launch_type": "civilian",
                         "status": "scheduled",
                         "confidence_score": 87.5,
+                        "result_tier": "verified",
+                        "evidence_count": 3,
                         "created_at": "2025-01-20T08:00:00Z",
                         "updated_at": "2025-01-22T09:15:00Z",
                         "sources": [],

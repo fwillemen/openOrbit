@@ -103,7 +103,7 @@ class CommercialLaunchScraper(BaseScraper):
         """Initialize scraper with settings."""
         self.settings = get_settings()
 
-    async def scrape(self) -> list[dict[str, Any]]:
+    async def scrape(self) -> list[dict[str, Any]]:  # type: ignore[override]
         """Scrape upcoming launches for all commercial providers.
 
         Returns:
@@ -307,7 +307,7 @@ class CommercialLaunchScraper(BaseScraper):
         )
         return None, None
 
-    def parse(self, raw_data: str, source_name: str = "") -> list[LaunchEventCreate]:
+    def parse(self, raw_data: str, source_name: str = "") -> list[LaunchEventCreate]:  # type: ignore[override]
         """Parse LL2 JSON response into LaunchEventCreate models.
 
         Calls normalize() on each raw launch dict; malformed events are

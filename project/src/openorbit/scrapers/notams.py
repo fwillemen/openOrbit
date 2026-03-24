@@ -1,4 +1,4 @@
-"""FAA NOTAM scraper for launch-related airspace notices.
+Update """FAA NOTAM scraper for launch-related airspace notices.
 
 Fetches NOTAMs from the FAA public API, filters for launch-related content
 using notam_parser, and upserts matched events into the database.
@@ -208,7 +208,9 @@ class NotamScraper(BaseScraper):
 
             except httpx.TimeoutException:
                 logger.warning(
-                    f"Timeout on attempt {attempt + 1}/{self.settings.SCRAPER_MAX_RETRIES}"
+                    "Timeout on attempt %d/%d",
+                    attempt + 1,
+                    self.settings.SCRAPER_MAX_RETRIES,
                 )
                 continue
             except httpx.RequestError as e:
@@ -216,11 +218,12 @@ class NotamScraper(BaseScraper):
                 continue
 
         logger.error(
-            f"Failed to fetch FAA NOTAMs after {self.settings.SCRAPER_MAX_RETRIES} attempts"
+            "Failed to fetch FAA NOTAMs after %d attempts",
+            self.settings.SCRAPER_MAX_RETRIES,
         )
         return None, None
 
-    def parse(self, raw_data: str) -> list[LaunchEventCreate]:
+    def parse(self, raw_data: str) -> list[LaunchEventCreate]:  # type: ignore[override]
         """Parse FAA NOTAM JSON response into LaunchEventCreate models.
 
         Args:
@@ -240,7 +243,9 @@ class NotamScraper(BaseScraper):
 
         items: list[dict[str, Any]] = data.get("items", [])
         events = extract_launch_candidates(items)
-        logger.info(f"Parsed {len(events)} launch-related NOTAMs from {len(items)} total")
+        logger.info(
+            "Parsed %d launch-related NOTAMs from %d total", len(events), len(items)
+        )
         return events
 
 

@@ -125,6 +125,9 @@ async def test_list_launches_with_seeded_data(seeded_client: AsyncClient) -> Non
     slugs = {e["slug"] for e in body["data"]}
     assert "spacex-falcon9-2025-03-15" in slugs
     assert "roscosmos-soyuz-2025-06-01" in slugs
+    for event in body["data"]:
+        assert event["result_tier"] in {"emerging", "tracked", "verified"}
+        assert isinstance(event["evidence_count"], int)
 
 
 async def test_list_launches_date_filter(seeded_client: AsyncClient) -> None:
@@ -246,6 +249,27 @@ async def test_min_confidence_zero_returns_all(seeded_client: AsyncClient) -> No
     assert response.status_code == 200
     body = response.json()
     assert body["meta"]["total"] == 2
+
+
+async def test_result_tier_filter_tracked(seeded_client: AsyncClient) -> None:
+    """?result_tier=tracked returns seeded records with medium/high confidence."""
+    response = await seeded_client.get(
+        "/v1/launches", params={"result_tier": "tracked"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meta"]["total"] == 2
+    assert all(item["result_tier"] == "tracked" for item in body["data"])
+
+
+async def test_result_tier_filter_verified_empty(seeded_client: AsyncClient) -> None:
+    """?result_tier=verified returns 0 with default seeded data."""
+    response = await seeded_client.get(
+        "/v1/launches", params={"result_tier": "verified"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meta"]["total"] == 0
 
 
 async def test_cursor_pagination_first_page(seeded_client: AsyncClient) -> None:

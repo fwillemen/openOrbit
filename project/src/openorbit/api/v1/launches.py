@@ -8,7 +8,7 @@ from __future__ import annotations
 import base64
 import math
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -26,6 +26,12 @@ from openorbit.models.api import (
     PaginationMeta,
 )
 from openorbit.models.db import EventAttribution, LaunchEvent
+from openorbit.tiering import ResultTier, classify_result_tier
+
+
+def _normalized_result_tier_param(value: str | None) -> ResultTier | None:
+    """Cast validated query input into the ResultTier type alias."""
+    return cast(ResultTier, value) if value is not None else None
 
 router = APIRouter()
 
@@ -119,6 +125,9 @@ def _build_launch_response(
         )
         for attr in (attributions or [])
     ]
+    result_tier = classify_result_tier(
+        float(event.confidence_score), event.attribution_count
+    )
     return LaunchEventResponse(
         id=event.id,
         slug=event.slug,
@@ -132,6 +141,8 @@ def _build_launch_response(
         launch_type=event.launch_type,
         status=event.status,
         confidence_score=float(event.confidence_score),
+        result_tier=result_tier,
+        evidence_count=event.attribution_count,
         created_at=event.created_at,
         updated_at=event.updated_at,
         sources=sources,
@@ -147,7 +158,7 @@ def _build_launch_response(
     description=(
         "Return a paginated list of orbital launch events. "
         "Supports filtering by date range, provider, launch type, status, "
-        "confidence score, inference flags, and proximity (lat/lon + radius). "
+        "confidence score, result tier, inference flags, and proximity (lat/lon + radius). "
         "Use **cursor-based** pagination (`cursor` + `limit`) for stable iteration "
         "over large result sets, or **page-based** pagination "
         "(`page` + `per_page`) for simpler use cases."
@@ -169,6 +180,9 @@ async def list_launches(
         Query(),
     ] = None,
     min_confidence: Annotated[float | None, Query(ge=0.0, le=100.0)] = None,
+    result_tier: Annotated[
+        Literal["emerging", "tracked", "verified"] | None, Query()
+    ] = None,
     has_inference_flag: Annotated[
         str | None, Query(description="Filter by inference flag")
     ] = None,
@@ -199,6 +213,7 @@ async def list_launches(
         launch_type: Filter by launch type.
         status: Filter by launch status.
         min_confidence: Exclude events below this confidence score.
+        result_tier: Filter by dashboard-oriented result tier.
         has_inference_flag: Filter to events containing this inference flag.
         location: Centre point for proximity search (format: ``lat,lon``).
         radius_km: Radius in km for proximity search (requires ``location``).
@@ -259,6 +274,7 @@ async def list_launches(
                 status=status,
                 launch_type=launch_type,
                 min_confidence=min_confidence,
+                result_tier=_normalized_result_tier_param(result_tier),
                 has_inference_flag=has_inference_flag,
                 limit=10_000,
                 offset=0,
@@ -296,6 +312,7 @@ async def list_launches(
                 status=status,
                 launch_type=launch_type,
                 min_confidence=min_confidence,
+                result_tier=_normalized_result_tier_param(result_tier),
                 has_inference_flag=has_inference_flag,
             )
             page_events = await get_launch_events(
@@ -306,6 +323,7 @@ async def list_launches(
                 status=status,
                 launch_type=launch_type,
                 min_confidence=min_confidence,
+                result_tier=_normalized_result_tier_param(result_tier),
                 has_inference_flag=has_inference_flag,
                 cursor_id=cursor_id,
                 limit=page_size,

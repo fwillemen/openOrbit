@@ -327,6 +327,21 @@ uv run pytest tests/test_db.py --cov=src/openorbit/db --cov-report=term-missing
 
 ---
 
+## Interactive API Documentation
+
+FastAPI automatically generates interactive API documentation from your route definitions. When the server is running, two UIs are available:
+
+| URL | Description |
+|-----|-------------|
+| **http://localhost:8000/docs** | Swagger UI — try endpoints live, inspect request/response schemas, authorize with API keys |
+| **http://localhost:8000/redoc** | ReDoc — clean read-only reference, ideal for sharing with API consumers |
+
+The raw OpenAPI schema (JSON) is served at **http://localhost:8000/openapi.json**.
+
+To get the most out of auto-generated docs, always set `tags`, `summary`, `description`, and `response_description` on every route decorator, and add `json_schema_extra` examples to Pydantic models.
+
+---
+
 ## Adding a New API Endpoint
 
 ### Step 1: Create a route module

@@ -14,7 +14,7 @@ from pathlib import Path
 import aiosqlite
 
 from openorbit.config import get_settings
-from openorbit.db import init_db_schema
+from openorbit.db import init_db_schema, resolve_sqlite_db_path
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ async def init_command() -> int:
     """
     try:
         settings = get_settings()
-        db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+        db_path = resolve_sqlite_db_path(settings.DATABASE_URL)
 
         print(f"Initializing database at {db_path}...")
 
