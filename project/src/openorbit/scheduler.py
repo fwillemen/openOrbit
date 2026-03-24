@@ -5,9 +5,11 @@ from __future__ import annotations
 import importlib
 import logging
 
+import openorbit.scrapers  # noqa: F401 — triggers scraper registration
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from openorbit.db import get_db, get_osint_sources
+from openorbit.scrapers.registry import registry
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,7 @@ async def start_scheduler() -> None:
 
     Reads enabled OSINT sources from the database and schedules each scraper
     using its configured ``refresh_interval_hours`` (default 6 h).
+    Registry-registered scrapers not in the DB are also scheduled.
     """
     global _scheduler
     _scheduler = create_scheduler()
@@ -57,20 +60,43 @@ async def start_scheduler() -> None:
     async with get_db() as conn:
         sources = await get_osint_sources(conn, enabled_only=True)
 
+    scheduled_ids: set[str] = set()
+
     for source in sources:
         interval_hours = source.refresh_interval_hours or 6
+        job_id = f"scraper_{source.id}"
         _scheduler.add_job(
             run_scraper_job,
             "interval",
             hours=interval_hours,
             args=[source.scraper_class, source.id],
-            id=f"scraper_{source.id}",
+            id=job_id,
             max_instances=1,
             misfire_grace_time=300,
         )
+        scheduled_ids.add(job_id)
+
+    # Also schedule registry scrapers not already covered by a DB source
+    db_scraper_classes = {source.scraper_class for source in sources}
+    for scraper_cls in registry.get_all():
+        module = scraper_cls.__module__
+        class_name = scraper_cls.__name__
+        class_path = f"{module}.{class_name}"
+        if class_path not in db_scraper_classes:
+            job_id = f"registry_{scraper_cls.source_name}"
+            if job_id not in scheduled_ids:
+                _scheduler.add_job(
+                    run_scraper_job,
+                    "interval",
+                    hours=6,
+                    args=[class_path, -1],
+                    id=job_id,
+                    max_instances=1,
+                    misfire_grace_time=300,
+                )
 
     _scheduler.start()
-    logger.info(f"Scheduler started with {len(sources)} job(s)")
+    logger.info(f"Scheduler started with {len(sources)} DB job(s)")
 
 
 async def stop_scheduler() -> None:

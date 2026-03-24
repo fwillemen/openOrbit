@@ -1,23 +1,51 @@
-"""Base protocol for OSINT scrapers.
+"""Base class for OSINT scrapers.
 
-Defines the interface that all scrapers must implement.
-Future scrapers (military, social media) will implement this protocol.
+Defines the abstract interface that all scrapers must implement.
+Concrete subclasses are auto-registered in the global ScraperRegistry
+via __init_subclass__.
 """
 
 from __future__ import annotations
 
-from typing import Protocol
+import inspect
+from abc import ABC, abstractmethod
+from typing import ClassVar
 
 from openorbit.models.db import LaunchEventCreate
 
 
-class BaseScraper(Protocol):
-    """Protocol defining the interface for all OSINT scrapers.
+class BaseScraper(ABC):
+    """Abstract base class for all OSINT scrapers.
 
-    All concrete scrapers must implement the scrape() method
-    that fetches and parses data from their respective sources.
+    Subclasses must define:
+        - source_name: ClassVar[str] — unique scraper identifier
+        - source_url: ClassVar[str] — base URL of the data source
+
+    Concrete (non-abstract) subclasses are auto-registered in the global
+    registry via __init_subclass__.
     """
 
+    source_name: ClassVar[str]
+    source_url: ClassVar[str]
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        if not hasattr(cls, "source_name") or not isinstance(
+            getattr(cls, "source_name", None), str
+        ):
+            raise TypeError(f"{cls.__name__} must define source_name: ClassVar[str]")
+        if not hasattr(cls, "source_url") or not isinstance(
+            getattr(cls, "source_url", None), str
+        ):
+            raise TypeError(f"{cls.__name__} must define source_url: ClassVar[str]")
+
+        # Only register concrete (non-abstract) classes
+        if not inspect.isabstract(cls):
+            from openorbit.scrapers.registry import registry
+
+            registry.register(cls)
+
+    @abstractmethod
     async def scrape(self) -> dict[str, int]:
         """Scrape data from the configured source.
 
@@ -30,8 +58,8 @@ class BaseScraper(Protocol):
         Raises:
             Exception: If critical failure occurs (network timeout, DB error, etc.)
         """
-        ...  # pragma: no cover
 
+    @abstractmethod
     async def parse(self, raw_data: str) -> list[LaunchEventCreate]:
         """Parse raw API/HTML response into LaunchEventCreate models.
 
@@ -44,4 +72,3 @@ class BaseScraper(Protocol):
         Raises:
             ValueError: If data format is invalid.
         """
-        ...  # pragma: no cover

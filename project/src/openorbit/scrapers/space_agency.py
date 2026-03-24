@@ -10,13 +10,14 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import aiosqlite
 import httpx
 
 from openorbit.config import get_settings
 from openorbit.db import (
+
     add_attribution,
     get_db,
     get_osint_sources,
@@ -27,17 +28,20 @@ from openorbit.db import (
     upsert_launch_event,
 )
 from openorbit.models.db import LaunchEventCreate
+from openorbit.scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
 
-class SpaceAgencyScraper:
+class SpaceAgencyScraper(BaseScraper):
     """Scraper for Launch Library 2 API (thespacedevs.com).
 
     Fetches upcoming launch events, stores raw JSON in raw_scrape_records,
     parses into LaunchEventCreate models, and upserts into launch_events table.
     """
 
+    source_name: ClassVar[str] = "space_agency"
+    source_url: ClassVar[str] = "https://ll.thespacedevs.com/2.2.0/"
     SOURCE_NAME = "Launch Library 2"
     BASE_URL = "https://ll.thespacedevs.com/2.2.0"
     ENDPOINT = "/launch/upcoming/"

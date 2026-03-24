@@ -10,7 +10,7 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 import aiosqlite
 import httpx
@@ -28,6 +28,7 @@ from openorbit.db import (
 )
 from openorbit.models.db import LaunchEventCreate
 from openorbit.pipeline.notam_parser import extract_launch_candidates
+from openorbit.scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +43,15 @@ _DEFAULT_PARAMS: dict[str, str | int] = {
 }
 
 
-class NotamScraper:
+class NotamScraper(BaseScraper):
     """Scraper for FAA NOTAM Database (launch-related airspace notices).
 
     Fetches NOTAMs from the FAA public API, filters for launch keywords,
     parses into LaunchEventCreate models, and upserts into the database.
     """
 
+    source_name: ClassVar[str] = "notams"
+    source_url: ClassVar[str] = "https://notams.aim.faa.gov/notamSearch/"
     SOURCE_NAME = "FAA NOTAM Database"
     BASE_URL = FAA_NOTAM_URL
 

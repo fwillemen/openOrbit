@@ -1,13 +1,18 @@
-"""Tests for scrapers/base.py — Protocol coverage."""
+"""Tests for scrapers/base.py — ABC coverage."""
 
 from __future__ import annotations
+
+from abc import ABC
 
 from openorbit.models.db import LaunchEventCreate
 from openorbit.scrapers.base import BaseScraper
 
 
-class DummyScraper:
-    """Concrete implementation of BaseScraper protocol for testing."""
+class DummyScraper(BaseScraper):
+    """Concrete implementation of BaseScraper ABC for testing."""
+
+    source_name: str = "dummy_coverage_scraper"
+    source_url: str = "https://example.com/"
 
     async def scrape(self) -> dict[str, int]:
         return {"total_fetched": 0, "new_events": 0, "updated_events": 0}
@@ -16,16 +21,9 @@ class DummyScraper:
         return []
 
 
-async def test_base_scraper_is_protocol() -> None:
-    """BaseScraper is a Protocol class."""
-    import typing
-
-    assert isinstance(BaseScraper, type)
-    # Protocol base should be in MRO or bases
-    origin = getattr(BaseScraper, "__bases__", ())
-    assert any(b is typing.Protocol or getattr(b, "_is_protocol", False) for b in origin) or getattr(
-        BaseScraper, "_is_protocol", False
-    )
+async def test_base_scraper_is_abstract_class() -> None:
+    """BaseScraper is an ABC."""
+    assert issubclass(BaseScraper, ABC)
 
 
 async def test_dummy_scraper_has_required_methods() -> None:

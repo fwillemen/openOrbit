@@ -73,12 +73,12 @@ async def sources_client_with_source() -> AsyncClient:  # type: ignore[return]
 
 
 async def test_list_sources_empty_returns_200(sources_client: AsyncClient) -> None:
-    """GET /v1/sources returns 200 with empty data list when no sources exist."""
+    """GET /v1/sources returns 200 with data list (may include registry-only scrapers)."""
     response = await sources_client.get("/v1/sources")
     assert response.status_code == 200
     body = response.json()
     assert "data" in body
-    assert body["data"] == []
+    assert isinstance(body["data"], list)
 
 
 async def test_list_sources_with_source_returns_data(
@@ -89,9 +89,12 @@ async def test_list_sources_with_source_returns_data(
     assert response.status_code == 200
     body = response.json()
     assert "data" in body
-    assert len(body["data"]) == 1
-    source = body["data"][0]
-    assert source["name"] == "Test Source"
+    # Response includes both DB sources and registry-only scrapers
+    assert len(body["data"]) >= 1
+    # Find the DB-registered "Test Source"
+    test_source = next((s for s in body["data"] if s["name"] == "Test Source"), None)
+    assert test_source is not None, "Expected 'Test Source' in response"
+    source = test_source
     assert source["url"] == "https://example.com/launches"
     assert source["enabled"] is True
     assert "id" in source

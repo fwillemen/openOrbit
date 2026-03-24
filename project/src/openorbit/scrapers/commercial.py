@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 import aiosqlite
 import httpx
@@ -29,6 +29,7 @@ from openorbit.db import (
 )
 from openorbit.models.db import LaunchEventCreate
 from openorbit.pipeline import NormalizationError, normalize
+from openorbit.scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ _PIPELINE_PRECISION_TO_DB: dict[
 }
 
 
-class CommercialLaunchScraper:
+class CommercialLaunchScraper(BaseScraper):
     """Scraper for commercial launch providers via Launch Library 2 API.
 
     Fetches upcoming launches for SpaceX and Rocket Lab, normalises each
@@ -91,6 +92,8 @@ class CommercialLaunchScraper:
     Each provider is tracked as a separate OSINT source.
     """
 
+    source_name: ClassVar[str] = "commercial"
+    source_url: ClassVar[str] = "https://ll.thespacedevs.com/2.2.0/"
     SOURCE_PREFIX = "LL2 Commercial"
     BASE_URL = "https://ll.thespacedevs.com/2.2.0"
     ENDPOINT = "/launch/upcoming/"
@@ -304,7 +307,7 @@ class CommercialLaunchScraper:
         )
         return None, None
 
-    def parse(self, raw_data: str, source_name: str) -> list[LaunchEventCreate]:
+    def parse(self, raw_data: str, source_name: str = "") -> list[LaunchEventCreate]:
         """Parse LL2 JSON response into LaunchEventCreate models.
 
         Calls normalize() on each raw launch dict; malformed events are

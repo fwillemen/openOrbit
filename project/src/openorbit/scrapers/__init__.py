@@ -1,5 +1,6 @@
 """Scraper modules for OSINT data collection.
 
-Future home for data source scrapers (NASA, SpaceX, etc.).
-Each scraper module will implement a standardized interface.
+Importing this package registers all built-in scrapers with the global registry.
 """
+
+from openorbit.scrapers import commercial, notams, space_agency  # noqa: F401
