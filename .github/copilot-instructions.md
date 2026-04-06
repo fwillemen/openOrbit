@@ -13,6 +13,8 @@ Current launch-intelligence sources in `project/src/openorbit/scrapers/`:
 - `space_agency` (Launch Library 2)
 - `spacex_official` (SpaceX API v4)
 - `celestrak` (CelesTrak last-30-days GP feed)
+- `commercial` (commercial launch provider aggregator)
+- `notams` (FAA NOTAM scraper — fixed in Sprint 4 / PO-027)
 - Regional public feed adapters: `esa_official`, `jaxa_official`, `isro_official`,
   `arianespace_official`, `cnsa_official`
 
@@ -21,6 +23,38 @@ When adding new sources for openOrbit:
 - Reuse the shared public feed adapter (`public_feed.py`) where possible.
 - Keep status, vehicle, and location normalization source-specific and tested.
 - Update `project/README.md` and relevant docs under `docs/scrapers/` in the same change.
+
+## OSINT Intelligence Methodology (Architectural Constraint)
+Sprint 4 is introducing a rigorous three-tier source model and claim lifecycle that **all**
+scraper, schema, and API work must conform to going forward.
+
+### Source Tiers (stored in `osint_sources.source_tier`)
+- **Tier 1** (Official/Regulatory): space agencies, operators, regulators — ground-truth
+- **Tier 2** (Operational/Catalog): NOTAMs, maritime warnings, TLE anomalies, range scheduling
+- **Tier 3** (Analytical/Speculative): newsletters, expert observers, tracking communities
+
+### Claim Lifecycle (stored in `launch_events.claim_lifecycle`)
+```
+rumor → indicated → corroborated → confirmed → retracted
+```
+Each transition requires multi-source, multi-tier corroboration.
+
+### Event Kind (stored in `launch_events.event_kind`)
+- `observed` — directly documented by Tier 1/2 sources
+- `inferred` — assembled from multiple signals
+
+### Evidence Types (stored in `event_attributions.evidence_type`)
+`official_schedule` | `notam` | `maritime_warning` | `range_signal` | `tle_anomaly` |
+`contract_award` | `expert_analysis` | `media` | `imagery`
+
+### Provenance fields on `event_attributions`
+Each attribution must carry: `source_url`, `observed_at`, `evidence_type`, `source_tier`,
+`confidence_score`, `confidence_rationale`.
+
+### Key implementation files (Sprint 4+)
+- Schema migration: `project/src/openorbit/db.py` (`migrate` command)
+- Provenance API: `project/src/openorbit/api/v1/launches.py` (`GET /v1/launches/{id}/provenance`)
+- Updated state schema: `project/state/schema.sql`
 
 ## Result Tiering Strategy (Dashboard Readiness)
 Launch-event consumers (including dashboard views) rely on a stable, explainable
