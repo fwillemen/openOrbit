@@ -7,13 +7,13 @@ WORKDIR /build
 RUN pip install --no-cache-dir uv
 
 # Copy dependency files
-COPY project/pyproject.toml project/uv.lock* ./
+COPY pyproject.toml uv.lock* ./
 
 # Install dependencies only (no source yet)
 RUN uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
 
 # Copy source
-COPY project/src ./src
+COPY src ./src
 
 # ─── Runtime stage ──────────────────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime

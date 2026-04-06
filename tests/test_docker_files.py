@@ -6,7 +6,7 @@ import os
 
 import yaml
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 def _repo_file(name: str) -> str:
@@ -95,7 +95,7 @@ def test_dockerignore_exists() -> None:
 
 def test_dockerignore_excludes_state() -> None:
     content = _read(".dockerignore")
-    assert "state/" in content
+    assert "_fleet/" in content
 
 
 def test_dockerignore_excludes_git() -> None:
@@ -110,7 +110,7 @@ def test_dockerignore_excludes_pycache() -> None:
 
 def test_dockerignore_excludes_tests() -> None:
     content = _read(".dockerignore")
-    assert "project/tests/" in content
+    assert "tests/" in content
 
 
 # ── docs/deployment.md ──────────────────────────────────────────────────────────

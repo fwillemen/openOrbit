@@ -16,11 +16,11 @@ jobs:
       - name: Install uv
         run: pip install uv
       - name: Install dependencies
-        run: cd project && uv sync
+        run: uv sync
       - name: Lint (ruff check)
-        run: cd project && uv run ruff check src/ tests/
+        run: uv run ruff check src/ tests/
       - name: Format check (ruff format)
-        run: cd project && uv run ruff format --check src/ tests/
+        run: uv run ruff format --check src/ tests/
 
   typecheck:
     runs-on: ubuntu-latest
@@ -32,9 +32,9 @@ jobs:
       - name: Install uv
         run: pip install uv
       - name: Install dependencies
-        run: cd project && uv sync
+        run: uv sync
       - name: Type check (mypy)
-        run: cd project && uv run mypy src/
+        run: uv run mypy src/
 
   test:
     runs-on: ubuntu-latest
@@ -46,6 +46,6 @@ jobs:
       - name: Install uv
         run: pip install uv
       - name: Install dependencies
-        run: cd project && uv sync
+        run: uv sync
       - name: Run tests with coverage
-        run: cd project && uv run pytest --cov=src --cov-fail-under=80 -q
+        run: uv run pytest --cov=src --cov-fail-under=80 -q

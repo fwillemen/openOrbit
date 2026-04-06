@@ -1,6 +1,6 @@
 .git/
 .github/
-state/
+_fleet/
 __pycache__/
 *.pyc
 *.pyo
@@ -10,9 +10,7 @@ htmlcov/
 *.egg-info/
 .venv/
 .env
-project/tests/
-project/.venv/
-fleet/
+tests/
 docs/
 *.md
 *.txt
