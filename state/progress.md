@@ -1,5 +1,18 @@
 # openOrbit — Sprint Progress Log
 
+## Sprint 4 — 2025-07-15 🏃 IN PROGRESS
+
+**Goal:** Fix critical SyntaxError, add Source Tier/Claim Lifecycle schema, Provenance API, Admin endpoints  
+**Budget:** $5.00 USD | **Items:** PO-027 ✅, PO-028 🔧, PO-029 ⏳, PO-016 ⏳
+
+### Status as of session resume
+- **1/4 items fully delivered** (PO-027 ✅)
+- **PO-028 implementation committed** — schema migration (source_tier, claim_lifecycle, event_kind, evidence_type) coded in db.py + 13 new tests; awaiting tester & docs
+- **422 tests collected** (up from 374 at Sprint 3 close) — all passing
+- **18/37 backlog items done** (17 Must Have + PO-023/PO-024)
+
+---
+
 ## Sprint 3 — 2025-07-14 ✅ COMPLETED (Resumed after rate-limit crash)
 
 **Goal:** Deliver 4 Must Have items: Test Coverage Hardening, API Key Auth, OpenAPI Docs, Plugin Interface  

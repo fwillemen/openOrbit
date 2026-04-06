@@ -94,6 +94,8 @@ class CommercialLaunchScraper(BaseScraper):
 
     source_name: ClassVar[str] = "commercial"
     source_url: ClassVar[str] = "https://ll.thespacedevs.com/2.2.0/"
+    source_tier: ClassVar[int] = 1
+    evidence_type: ClassVar[str] = "official_schedule"
     SOURCE_PREFIX = "LL2 Commercial"
     BASE_URL = "https://ll.thespacedevs.com/2.2.0"
     ENDPOINT = "/launch/upcoming/"

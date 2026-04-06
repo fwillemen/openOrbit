@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import pytest
 
+from openorbit.models.db import LaunchEventCreate
 from openorbit.scrapers.base import BaseScraper
 from openorbit.scrapers.registry import ScraperRegistry
-from openorbit.models.db import LaunchEventCreate
-
 
 # ---------------------------------------------------------------------------
 # Minimal concrete stub used throughout this test module

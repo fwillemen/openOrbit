@@ -180,6 +180,25 @@ async def init_db_schema(conn: aiosqlite.Connection) -> None:
             # Column already exists — safe to ignore.
             pass
 
+        # PO-028: source tier and claim lifecycle migrations.
+        migrations = [
+            "ALTER TABLE osint_sources ADD COLUMN source_tier INTEGER NOT NULL DEFAULT 1",
+            "ALTER TABLE launch_events ADD COLUMN claim_lifecycle TEXT NOT NULL DEFAULT 'indicated'",
+            "ALTER TABLE launch_events ADD COLUMN event_kind TEXT NOT NULL DEFAULT 'observed'",
+            "ALTER TABLE event_attributions ADD COLUMN source_url TEXT",
+            "ALTER TABLE event_attributions ADD COLUMN observed_at TEXT",
+            "ALTER TABLE event_attributions ADD COLUMN evidence_type TEXT",
+            "ALTER TABLE event_attributions ADD COLUMN source_tier INTEGER",
+            "ALTER TABLE event_attributions ADD COLUMN confidence_score INTEGER",
+            "ALTER TABLE event_attributions ADD COLUMN confidence_rationale TEXT",
+        ]
+        for migration_sql in migrations:
+            try:
+                await conn.execute(migration_sql)
+            except aiosqlite.OperationalError:
+                pass  # Column already exists
+        await conn.commit()
+
         logger.info("Database schema initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize database schema: {e}")
@@ -197,6 +216,7 @@ async def register_osint_source(
     url: str,
     scraper_class: str,
     enabled: bool = True,
+    source_tier: int = 1,
 ) -> int:
     """Register a new OSINT source.
 
@@ -206,6 +226,7 @@ async def register_osint_source(
         url: Base URL of the data source.
         scraper_class: Python class path (e.g., 'openorbit.scrapers.nasa.NASAScraper').
         enabled: Whether the source is enabled (default: True).
+        source_tier: Credibility tier — 1=Official, 2=Operational, 3=Analytical (default: 1).
 
     Returns:
         Source ID of the created source.
@@ -216,10 +237,10 @@ async def register_osint_source(
     try:
         cursor = await conn.execute(
             """
-            INSERT INTO osint_sources (name, url, scraper_class, enabled)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO osint_sources (name, url, scraper_class, enabled, source_tier)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (name, url, scraper_class, 1 if enabled else 0),
+            (name, url, scraper_class, 1 if enabled else 0, source_tier),
         )
         await conn.commit()
         source_id = cursor.lastrowid
@@ -519,7 +540,8 @@ async def upsert_launch_event(
             UPDATE launch_events
             SET name = ?, launch_date = ?, launch_date_precision = ?, provider = ?,
                 vehicle = ?, location = ?, pad = ?, launch_type = ?, status = ?,
-                confidence_score = ?, updated_at = ?
+                confidence_score = ?, updated_at = ?,
+                claim_lifecycle = ?, event_kind = ?
             WHERE slug = ?
             """,
             (
@@ -534,6 +556,8 @@ async def upsert_launch_event(
                 event.status,
                 confidence_score,
                 now,
+                event.claim_lifecycle,
+                event.event_kind,
                 slug,
             ),
         )
@@ -544,8 +568,9 @@ async def upsert_launch_event(
             """
             INSERT INTO launch_events (
                 slug, name, launch_date, launch_date_precision, provider, vehicle,
-                location, pad, launch_type, status, confidence_score, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                location, pad, launch_type, status, confidence_score,
+                claim_lifecycle, event_kind, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 slug,
@@ -559,6 +584,8 @@ async def upsert_launch_event(
                 event.launch_type,
                 event.status,
                 confidence_score,
+                event.claim_lifecycle,
+                event.event_kind,
                 now,
                 now,
             ),
@@ -800,6 +827,8 @@ async def get_launch_event_by_slug(
         launch_type=row["launch_type"],
         status=row["status"],
         confidence_score=row["confidence_score"],
+        claim_lifecycle=row["claim_lifecycle"] or "indicated",
+        event_kind=row["event_kind"] or "observed",
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
         attribution_count=row["attribution_count"],
@@ -896,6 +925,13 @@ async def add_attribution(
     conn: aiosqlite.Connection,
     event_slug: str,
     scrape_record_id: int,
+    *,
+    source_url: str | None = None,
+    observed_at: str | None = None,
+    evidence_type: str | None = None,
+    source_tier: int | None = None,
+    confidence_score: int | None = None,
+    confidence_rationale: str | None = None,
 ) -> int:
     """Link a launch event to a scrape record.
 
@@ -905,6 +941,12 @@ async def add_attribution(
         conn: Database connection.
         event_slug: Event slug (FK to launch_events).
         scrape_record_id: Scrape record ID (FK to raw_scrape_records).
+        source_url: Optional direct URL of the evidence.
+        observed_at: ISO 8601 timestamp of when evidence was observed.
+        evidence_type: Classification of the evidence (e.g., 'official_schedule', 'notam').
+        source_tier: Credibility tier of the source — 1=Official, 2=Operational, 3=Analytical.
+        confidence_score: 0–100 confidence score for this attribution.
+        confidence_rationale: Human-readable rationale for the confidence score.
 
     Returns:
         Attribution ID (existing or newly created).
@@ -946,9 +988,23 @@ async def add_attribution(
     # Create new attribution
     attributed_at = datetime.now(UTC).isoformat()
     cursor = await conn.execute(
-        """INSERT INTO event_attributions (event_slug, scrape_record_id, attributed_at)
-        VALUES (?, ?, ?)""",
-        (event_slug, scrape_record_id, attributed_at),
+        """INSERT INTO event_attributions (
+            event_slug, scrape_record_id, attributed_at,
+            source_url, observed_at, evidence_type,
+            source_tier, confidence_score, confidence_rationale
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            event_slug,
+            scrape_record_id,
+            attributed_at,
+            source_url,
+            observed_at,
+            evidence_type,
+            source_tier,
+            confidence_score,
+            confidence_rationale,
+        ),
     )
     await conn.commit()
 
@@ -1004,7 +1060,13 @@ async def get_event_attributions(
         SELECT 
             s.name as source_name,
             r.scraped_at,
-            r.url
+            r.url,
+            a.source_url,
+            a.observed_at,
+            a.evidence_type,
+            a.source_tier,
+            a.confidence_score,
+            a.confidence_rationale
         FROM event_attributions a
         JOIN raw_scrape_records r ON a.scrape_record_id = r.id
         JOIN osint_sources s ON r.source_id = s.id
@@ -1022,6 +1084,16 @@ async def get_event_attributions(
                 source_name=row["source_name"],
                 scraped_at=datetime.fromisoformat(row["scraped_at"]),
                 url=row["url"],
+                source_url=row["source_url"],
+                observed_at=(
+                    datetime.fromisoformat(row["observed_at"])
+                    if row["observed_at"]
+                    else None
+                ),
+                evidence_type=row["evidence_type"],
+                source_tier=row["source_tier"],
+                confidence_score=row["confidence_score"],
+                confidence_rationale=row["confidence_rationale"],
             )
         )
 

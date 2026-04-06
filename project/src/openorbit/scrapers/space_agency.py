@@ -42,6 +42,8 @@ class SpaceAgencyScraper(BaseScraper):
 
     source_name: ClassVar[str] = "space_agency"
     source_url: ClassVar[str] = "https://ll.thespacedevs.com/2.2.0/"
+    source_tier: ClassVar[int] = 1
+    evidence_type: ClassVar[str] = "official_schedule"
     SOURCE_NAME = "Launch Library 2"
     BASE_URL = "https://ll.thespacedevs.com/2.2.0"
     ENDPOINT = "/launch/upcoming/"

@@ -1302,3 +1302,133 @@ has not yet been seeded into the database.
   `BaseScraper` to the class header) — low risk, well-scoped.
 - ❌ Scrapers that define no DB row lose historical `event_count` until first
   scrape run; acceptable trade-off for simplicity.
+
+## ADR-PO028: OSINT Source Tier System & Claim Lifecycle Schema Migration
+
+**Date:** 2025-07-23
+**Status:** Accepted
+**Sprint:** sprint-4 / PO-028
+
+### Context
+
+The current schema treats all data sources and launch claims equally. As the intelligence
+methodology matures, we need first-class schema support for:
+- Source credibility tiers (official vs. operational vs. analytical)
+- Claim lifecycle states (rumor → confirmed or retracted)
+- Evidence classification per attribution record
+- Per-attribution confidence scores with human-readable rationale
+
+This enables the dashboard to display provenance-aware data and the tiering engine
+to make more nuanced `verified`/`tracked`/`emerging` decisions.
+
+### Decision
+
+**1. Schema changes via idempotent ALTER TABLE migrations in `init_db_schema()`**
+
+All new columns have safe defaults so existing rows remain valid. The established
+try/except pattern in `init_db_schema()` is used for each column (one try/except
+block per column).
+
+**2. `osint_sources.source_tier`** — `INTEGER NOT NULL DEFAULT 1`
+Tier 1 = Official/Regulatory, Tier 2 = Operational, Tier 3 = Analytical.
+Updated in `schema.sql` inside `CREATE TABLE osint_sources` and via ALTER TABLE
+at startup.
+
+**3. `launch_events.claim_lifecycle`** — `TEXT NOT NULL DEFAULT 'indicated'`
+CHECK IN ('rumor','indicated','corroborated','confirmed','retracted').
+Updated in `schema.sql` inside `CREATE TABLE launch_events` and via ALTER TABLE.
+
+**4. `launch_events.event_kind`** — `TEXT NOT NULL DEFAULT 'observed'`
+CHECK IN ('observed','inferred').
+Updated in `schema.sql` and via ALTER TABLE.
+
+**5. `event_attributions` enrichment columns** — 6 new nullable columns:
+- `source_url TEXT` — direct URL to source document
+- `observed_at TEXT` — ISO 8601 when signal was seen
+- `evidence_type TEXT` — CHECK IN set of 9 canonical types
+- `source_tier INTEGER` — denormalized copy for fast queries
+- `confidence_score INTEGER` — CHECK BETWEEN 0 AND 100
+- `confidence_rationale TEXT` — human-readable explanation
+All added via ALTER TABLE at startup (nullable, no default required).
+
+**6. Scraper class vars** — `BaseScraper` gains two optional class-level ClassVar
+attributes: `source_tier: ClassVar[int] = 1` and `evidence_type: ClassVar[str] = 'official_schedule'`.
+Each scraper overrides them as specified in the acceptance criteria. These are
+class-level only — no DB writes change except when `register_osint_source()`
+writes the tier to `osint_sources.source_tier`.
+
+**7. `add_attribution()` signature extension** — new optional keyword arguments:
+`source_url`, `observed_at`, `evidence_type`, `source_tier`, `confidence_score`,
+`confidence_rationale`. All default to `None` for backward compatibility. The
+INSERT into `event_attributions` writes these values when provided.
+
+**8. Pydantic models updated:**
+- `OSINTSource` (db.py): add `source_tier: int = 1`
+- `LaunchEventCreate` (db.py): add `claim_lifecycle` and `event_kind` with Literal defaults
+- `EventAttribution` (db.py): add all 6 enrichment fields as Optional
+- `AttributionResponse` (api.py): add optional `evidence_type`, `source_tier`, `confidence_score`, `confidence_rationale`
+- `LaunchEventResponse` (api.py): add `claim_lifecycle` and `event_kind`
+
+**9. Existing result tier logic is unchanged** — `tiering.py` and SQL expr remain.
+The `confidence_score` column on `launch_events` (0-100 int) continues to drive
+`verified`/`tracked`/`emerging` via the existing `result_tier_sql_expr()`.
+
+### Migration Strategy
+
+`init_db_schema()` in `db.py`:
+1. Executes `schema.sql` (CREATE TABLE IF NOT EXISTS — no-op on existing tables)
+2. Runs 9 idempotent ALTER TABLE blocks (one try/except per new column):
+   - `osint_sources`: `source_tier`
+   - `launch_events`: `claim_lifecycle`, `event_kind`
+   - `event_attributions`: `source_url`, `observed_at`, `evidence_type`, `source_tier`, `confidence_score`, `confidence_rationale`
+3. Each block logs success; exceptions (column exists) are silently swallowed.
+
+### Consequences
+
+- ✅ Zero downtime: existing data remains valid (all new columns have defaults or are nullable)
+- ✅ Idempotent: safe to run on already-migrated databases
+- ✅ Backward compatible: `add_attribution()` callers that omit new kwargs continue to work
+- ✅ Result tier contract preserved
+- ✅ Clean scraper class-level metadata (no runtime cost)
+- ❌ Scrapers currently do NOT pass enrichment fields when calling `add_attribution()` — that wiring is a follow-on task (PO-029 or inline in programmer's implementation of this item)
+- ❌ SQLite CHECK constraints on new columns only enforce on INSERT/UPDATE for new rows; existing rows are not validated retroactively
+
+### Files Affected
+
+- `project/src/openorbit/schema.sql`
+- `project/src/openorbit/db.py`
+- `project/src/openorbit/models/db.py`
+- `project/src/openorbit/models/api.py`
+- `project/src/openorbit/scrapers/base.py`
+- `project/src/openorbit/scrapers/space_agency.py`
+- `project/src/openorbit/scrapers/spacex_official.py`
+- `project/src/openorbit/scrapers/commercial.py`
+- `project/src/openorbit/scrapers/celestrak.py`
+- `project/src/openorbit/scrapers/notams.py`
+- `project/src/openorbit/scrapers/esa_official.py`
+- `project/src/openorbit/scrapers/jaxa_official.py`
+- `project/src/openorbit/scrapers/isro_official.py`
+- `project/src/openorbit/scrapers/arianespace_official.py`
+- `project/src/openorbit/scrapers/cnsa_official.py`
+- `project/tests/test_db.py` (or new test file)
+
+## ADR-PO016: Admin & Source Health Monitoring Endpoints
+
+**Date:** 2025-07-14
+**Status:** Accepted
+
+### Context
+Need admin endpoints for source monitoring, health stats, and manual refresh.
+
+### Decision
+- New router `admin.py` in `api/v1/` with prefix `/admin`
+- `dependencies=[Depends(require_admin)]` on all routes
+- New Pydantic models: `SourceHealthResponse`, `AdminStatsResponse`, `AdminRefreshResponse`
+- `event_count` via subquery on `event_attributions` joined to `raw_scrape_records`
+- `error_rate` calculated from `raw_scrape_records`
+- `POST /refresh` returns 202 with triggered status (background execution deferred)
+- Registered in `api/v1/__init__.py`
+
+### Consequences
+- All admin endpoints behind X-API-Key auth
+- Backward-compatible addition

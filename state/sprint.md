@@ -1,3 +1,29 @@
+# Sprint 4 — 2025-07-15 (RESUMED)
+
+**Goal:** Fix critical SyntaxError, add Source Tier/Claim Lifecycle schema, Provenance API, Admin endpoints  
+**Budget:** $5.00 USD | **Items:** PO-027, PO-028, PO-029, PO-016
+
+## In Progress
+| ID | Feature | Status |
+|----|---------|--------|
+| PO-028 | Source Tier System & Claim Lifecycle Schema Migration | 📝 Docs in progress |
+| PO-029 | Provenance API — Per-Event Evidence Chain Endpoint | 🏗️ Full cycle in progress |
+| PO-016 | Admin & Source Health Monitoring Endpoints | 🏗️ Full cycle in progress |
+
+## Completed This Sprint
+| ID | Feature | Coverage |
+|----|---------|----------|
+| PO-027 | Fix notams.py Critical SyntaxError | 422 tests passing, notams.py imports cleanly |
+
+## Blocked
+| ID | Feature | Blocker |
+|----|---------|---------|
+
+---
+*Sprint 4 resumed — 1/4 items done (PO-028 implementation committed, awaiting tester + docs)*
+
+---
+
 # Sprint 3 — 2025-07-14  ✅ COMPLETED
 
 ## In Progress

@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from abc import abstractmethod
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import Any, ClassVar
+from typing import ClassVar
 
 import aiosqlite
 import httpx
@@ -37,6 +37,8 @@ class PublicFeedScraper(BaseScraper):
 
     source_name: ClassVar[str] = "public_feed_base"
     source_url: ClassVar[str] = "https://example.invalid/rss"
+    source_tier: ClassVar[int] = 1
+    evidence_type: ClassVar[str] = "official_schedule"
     SOURCE_NAME: ClassVar[str]
     PROVIDER_NAME: ClassVar[str]
     KEYWORDS: ClassVar[tuple[str, ...]] = (
@@ -306,7 +308,7 @@ class PublicFeedScraper(BaseScraper):
 
     def _build_slug(self, link: str, title: str) -> str:
         """Build stable deterministic slug from source + link + title."""
-        digest = hashlib.sha1(f"{self.source_name}|{link}|{title}".encode("utf-8")).hexdigest()[:12]
+        digest = hashlib.sha1(f"{self.source_name}|{link}|{title}".encode()).hexdigest()[:12]
         return f"{self.source_name}-{digest}"
 
     @staticmethod

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import asyncio
 
-from openorbit.scrapers.public_feed import PublicFeedScraper, run_public_feed_scraper_cli
+from openorbit.scrapers.public_feed import (
+    PublicFeedScraper,
+    run_public_feed_scraper_cli,
+)
 
 
 class CNSAOfficialScraper(PublicFeedScraper):

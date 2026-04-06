@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS osint_sources (
     url TEXT NOT NULL,
     scraper_class TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,  -- 0 = disabled, 1 = enabled
-    last_scraped_at TEXT  -- ISO 8601 timestamp (nullable)
+    last_scraped_at TEXT,  -- ISO 8601 timestamp (nullable)
+    source_tier INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_osint_sources_enabled 
@@ -57,7 +58,9 @@ CREATE TABLE IF NOT EXISTS launch_events (
         confidence_score BETWEEN 0 AND 100
     ),
     created_at TEXT NOT NULL,  -- ISO 8601 timestamp
-    updated_at TEXT NOT NULL   -- ISO 8601 timestamp
+    updated_at TEXT NOT NULL,  -- ISO 8601 timestamp
+    claim_lifecycle TEXT NOT NULL DEFAULT 'indicated',
+    event_kind TEXT NOT NULL DEFAULT 'observed'
 );
 
 CREATE INDEX IF NOT EXISTS idx_launch_events_date 
@@ -80,6 +83,12 @@ CREATE TABLE IF NOT EXISTS event_attributions (
     event_slug TEXT NOT NULL,
     scrape_record_id INTEGER NOT NULL,
     attributed_at TEXT NOT NULL,  -- ISO 8601 timestamp
+    source_url TEXT,
+    observed_at TEXT,
+    evidence_type TEXT,
+    source_tier INTEGER,
+    confidence_score INTEGER,
+    confidence_rationale TEXT,
     FOREIGN KEY (event_slug) REFERENCES launch_events(slug) ON DELETE CASCADE,
     FOREIGN KEY (scrape_record_id) REFERENCES raw_scrape_records(id) ON DELETE CASCADE
 );

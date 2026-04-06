@@ -38,6 +38,8 @@ class SpaceXOfficialScraper(BaseScraper):
 
     source_name: ClassVar[str] = "spacex_official"
     source_url: ClassVar[str] = "https://api.spacexdata.com/v4/launches/query"
+    source_tier: ClassVar[int] = 1
+    evidence_type: ClassVar[str] = "official_schedule"
     SOURCE_NAME = "SpaceX API v4"
     BASE_URL = "https://api.spacexdata.com/v4/launches/query"
 

@@ -27,6 +27,10 @@ class AttributionResponse(BaseModel):
     name: str
     url: str
     scraped_at: datetime | None = None
+    evidence_type: str | None = None
+    source_tier: int | None = None
+    confidence_score: int | None = None
+    confidence_rationale: str | None = None
 
 
 class PaginationMeta(BaseModel):
@@ -99,8 +103,34 @@ class LaunchEventResponse(BaseModel):
     evidence_count: int
     created_at: datetime
     updated_at: datetime
+    claim_lifecycle: str = "indicated"
+    event_kind: str = "observed"
     sources: list[AttributionResponse] = []
     inference_flags: list[str] = []
+    evidence_url: str | None = None
+
+
+class EvidenceAttributionItem(BaseModel):
+    """Single attribution item in the evidence chain."""
+
+    source_name: str
+    source_tier: int | None = None
+    evidence_type: str | None = None
+    source_url: str | None = None
+    observed_at: datetime | None = None
+    confidence_score: int | None = None
+    confidence_rationale: str | None = None
+
+
+class EvidenceResponse(BaseModel):
+    """Full evidence chain for a launch event."""
+
+    launch_id: str
+    claim_lifecycle: str
+    event_kind: str
+    evidence_count: int
+    tier_coverage: list[int]
+    attributions: list[EvidenceAttributionItem]
 
 
 class PaginatedLaunchResponse(BaseModel):
@@ -205,3 +235,42 @@ class ApiKeyRevokeResponse(BaseModel):
 
     id: int
     revoked_at: str
+
+
+# ---------------------------------------------------------------------------
+# Admin models
+# ---------------------------------------------------------------------------
+
+
+class SourceHealthResponse(BaseModel):
+    """Source health status for admin monitoring."""
+
+    id: int
+    name: str
+    url: str
+    scraper_class: str
+    enabled: bool
+    source_tier: int
+    last_scraped_at: datetime | None = None
+    event_count: int = 0
+    last_run_status: str | None = None
+    last_run_at: datetime | None = None
+    error_rate: float = 0.0
+
+
+class AdminRefreshResponse(BaseModel):
+    """Response for manual source refresh trigger."""
+
+    status: str
+    source_id: str
+
+
+class AdminStatsResponse(BaseModel):
+    """Aggregated stats for admin dashboard."""
+
+    total_events: int
+    events_by_source: dict[str, int]
+    events_by_type: dict[str, int]
+    events_by_lifecycle: dict[str, int]
+    avg_confidence: float
+    last_refresh_at: datetime | None = None

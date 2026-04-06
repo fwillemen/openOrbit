@@ -1,4 +1,4 @@
-Update """FAA NOTAM scraper for launch-related airspace notices.
+"""FAA NOTAM scraper for launch-related airspace notices.
 
 Fetches NOTAMs from the FAA public API, filters for launch-related content
 using notam_parser, and upserts matched events into the database.
@@ -52,6 +52,8 @@ class NotamScraper(BaseScraper):
 
     source_name: ClassVar[str] = "notams"
     source_url: ClassVar[str] = "https://notams.aim.faa.gov/notamSearch/"
+    source_tier: ClassVar[int] = 2
+    evidence_type: ClassVar[str] = "notam"
     SOURCE_NAME = "FAA NOTAM Database"
     BASE_URL = FAA_NOTAM_URL
 

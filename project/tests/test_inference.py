@@ -10,7 +10,6 @@ import pytest
 from openorbit.db import init_db_schema
 from openorbit.pipeline.inference import InferenceEngine
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

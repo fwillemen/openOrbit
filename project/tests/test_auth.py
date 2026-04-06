@@ -378,8 +378,9 @@ class TestRequireValidKey:
         from contextlib import asynccontextmanager
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        import openorbit.config as cfg_mod
         from fastapi import HTTPException
+
+        import openorbit.config as cfg_mod
         from openorbit.auth import require_valid_key
 
         original = cfg_mod.get_settings()

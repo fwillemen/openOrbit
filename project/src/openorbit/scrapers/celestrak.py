@@ -41,6 +41,8 @@ class CelesTrakScraper(BaseScraper):
     source_url: ClassVar[str] = (
         "https://celestrak.org/NORAD/elements/gp.php?GROUP=last-30-days&FORMAT=json"
     )
+    source_tier: ClassVar[int] = 2
+    evidence_type: ClassVar[str] = "tle_anomaly"
     SOURCE_NAME = "CelesTrak Last-30-Day Launches"
 
     def __init__(self) -> None:

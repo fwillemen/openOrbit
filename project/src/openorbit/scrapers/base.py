@@ -27,6 +27,8 @@ class BaseScraper(ABC):
 
     source_name: ClassVar[str]
     source_url: ClassVar[str]
+    source_tier: ClassVar[int] = 1
+    evidence_type: ClassVar[str] = "official_schedule"
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)

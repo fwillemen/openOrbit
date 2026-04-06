@@ -280,6 +280,7 @@ curl http://localhost:8000/health
 | `updated_at` | `datetime` | Record last-updated timestamp. |
 | `sources` | `AttributionResponse[]` | OSINT sources that confirmed this event. |
 | `inference_flags` | `string[]` | Flags describing inferred fields (e.g. `date_inferred_from_window`). |
+| `evidence_url` | `string` | URL to the full evidence chain for this event. |
 
 ### `PaginationMeta`
 
@@ -325,3 +326,80 @@ curl http://localhost:8000/health
 |-------|------|-------------|
 | `id` | `integer` | Database ID of the revoked key. |
 | `revoked_at` | `string` | ISO 8601 revocation timestamp. |
+
+---
+
+## Admin
+
+Admin endpoints require the `X-API-Key` header with a valid admin key.
+
+### `GET /v1/admin/sources`
+
+List all OSINT sources with health statistics.
+
+| Field | Value |
+|-------|-------|
+| **Auth required** | Yes (`X-API-Key` admin key) |
+| **Response** | `200 SourceHealthResponse[]` |
+
+#### Response: `SourceHealthResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `integer` | Source ID. |
+| `name` | `string` | Source name. |
+| `url` | `string` | Source URL. |
+| `scraper_class` | `string` | Python scraper class path. |
+| `enabled` | `boolean` | Whether the source is active. |
+| `source_tier` | `integer` | Credibility tier (1=Official, 2=Operational, 3=Analytical). |
+| `last_scraped_at` | `datetime \| null` | Last successful scrape timestamp. |
+| `event_count` | `integer` | Total distinct events attributed to this source. |
+| `last_run_status` | `string \| null` | `success` or `error` from most recent run. |
+| `last_run_at` | `datetime \| null` | Most recent scrape run timestamp. |
+| `error_rate` | `float` | Fraction of runs with errors (0.0 – 1.0). |
+
+### `POST /v1/admin/sources/{id}/refresh`
+
+Trigger a manual scrape for a source.
+
+| Field | Value |
+|-------|-------|
+| **Auth required** | Yes |
+| **Response** | `202 AdminRefreshResponse` |
+
+#### Path Parameters
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `integer` | Source ID. |
+
+#### Response: `AdminRefreshResponse`
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | `string` | Always `"triggered"`. |
+| `source_id` | `string` | The source ID that was triggered. |
+
+### `GET /v1/admin/stats`
+
+Get aggregated statistics.
+
+| Field | Value |
+|-------|-------|
+| **Auth required** | Yes |
+| **Response** | `200 AdminStatsResponse` |
+
+#### Response: `AdminStatsResponse`
+| Field | Type | Description |
+|-------|------|-------------|
+| `total_events` | `integer` | Total launch events in the database. |
+| `events_by_source` | `object` | Map of source name → event count. |
+| `events_by_type` | `object` | Map of launch_type → count. |
+| `events_by_lifecycle` | `object` | Map of claim_lifecycle → count. |
+| `avg_confidence` | `float` | Average confidence score (0–100). |
+| `last_refresh_at` | `datetime \| null` | Most recent scrape run timestamp. |
+
+#### Errors (all admin endpoints)
+| Code | Description |
+|------|-------------|
+| `401` | No API key provided. |
+| `403` | Invalid or revoked API key. |
+| `404` | Source not found (`POST /refresh` only). |

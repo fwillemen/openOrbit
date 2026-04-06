@@ -31,6 +31,10 @@ class OSINTSource(BaseModel):
     refresh_interval_hours: int = Field(
         default=6, description="Scrape refresh interval in hours"
     )
+    source_tier: int = Field(
+        default=1,
+        description="Source credibility tier: 1=Official, 2=Operational, 3=Analytical",
+    )
 
 
 class LaunchEventCreate(BaseModel):
@@ -60,6 +64,12 @@ class LaunchEventCreate(BaseModel):
         description="Event status"
     )
     slug: str | None = Field(default=None, description="Optional manual slug override")
+    claim_lifecycle: Literal[
+        "rumor", "indicated", "corroborated", "confirmed", "retracted"
+    ] = Field(default="indicated", description="Epistemic lifecycle state of the claim")
+    event_kind: Literal["observed", "inferred"] = Field(
+        default="observed", description="Whether the event is directly observed or inferred"
+    )
 
 
 class LaunchEvent(LaunchEventCreate):
@@ -90,3 +100,20 @@ class EventAttribution(BaseModel):
     source_name: str = Field(description="OSINT source name")
     scraped_at: datetime = Field(description="When data was scraped")
     url: str = Field(description="URL scraped")
+    source_url: str | None = Field(default=None, description="Direct URL of the evidence")
+    observed_at: datetime | None = Field(
+        default=None, description="Timestamp of when evidence was observed"
+    )
+    evidence_type: str | None = Field(
+        default=None, description="Evidence classification (e.g., 'official_schedule', 'notam')"
+    )
+    source_tier: int | None = Field(
+        default=None,
+        description="Credibility tier: 1=Official, 2=Operational, 3=Analytical",
+    )
+    confidence_score: int | None = Field(
+        default=None, description="0–100 confidence score for this attribution"
+    )
+    confidence_rationale: str | None = Field(
+        default=None, description="Rationale for the confidence score"
+    )

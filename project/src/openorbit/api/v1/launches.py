@@ -147,6 +147,7 @@ def _build_launch_response(
         updated_at=event.updated_at,
         sources=sources,
         inference_flags=event.inference_flags,
+        evidence_url=f"/v1/launches/{event.slug}/evidence",
     )
 
 
