@@ -1452,3 +1452,116 @@ Need a per-event endpoint returning all attribution evidence with tier coverage 
 - Minimal DB changes (read-only queries via existing functions, with bug fix for claim_lifecycle/event_kind persistence)
 - Backward-compatible (`evidence_url` added to existing response with `None` default)
 - `upsert_launch_event` now correctly stores `claim_lifecycle` and `event_kind` columns
+
+---
+
+### ADR-015: Tier 3 News RSS Scraper — NewsRSSScraper Architecture (PO-017)
+
+**Status:** Accepted  
+**Date:** 2025-07-14  
+**Sprint Item:** PO-017
+
+**Context:**  
+OpenOrbit currently ingests Tier 1 (official agency schedules) and Tier 2 (NOTAMs, operational signals) data. To build a complete OSINT picture, we need Tier 3 Analytical/Media sources. SpaceFlightNow and NASASpaceflight publish high-quality space launch journalism via standard RSS. These sources do not provide schedule data directly — they report on launches with varying degrees of confidence — so events derived from them must carry `claim_lifecycle='rumor'` until corroborated by Tier 1/2 sources.
+
+Key requirements:
+- Two concrete scrapers auto-registered in `ScraperRegistry`
+- `source_tier=3`, `evidence_type='media'`
+- Fuzzy entity linking: news items that reference an existing launch (matched by provider name + date proximity ±7 days) should attribute to the existing event rather than creating duplicates
+- Unmatched items create new events with `claim_lifecycle='rumor'` and `event_kind='inferred'`
+
+**Decision:**  
+Introduce `project/src/openorbit/scrapers/news.py` with a class hierarchy:
+
+```
+PublicFeedScraper (existing)
+  └── NewsRSSScraper (abstract, in news.py)
+        ├── SpaceFlightNowScraper (concrete, auto-registered)
+        └── NASASpaceflightScraper (concrete, auto-registered)
+```
+
+**Rejected alternative — single `NewsRSSScraper` iterating multiple feed URLs:**  
+A single class with a list of URLs would not auto-register as two independent OSINT sources, would complicate per-source scrape logging, and would mix attribution records from two distinct journalistic outlets. Two concrete subclasses keeps sources traceable and individually enable/disable-able.
+
+**Design details:**
+
+1. **`NewsRSSScraper(PublicFeedScraper)`** — abstract intermediate class:
+   - `source_tier: ClassVar[int] = 3`
+   - `evidence_type: ClassVar[str] = "media"`
+   - Overrides `parse()`: calls `super().parse()` then stamps every returned `LaunchEventCreate` with `claim_lifecycle='rumor'` and `event_kind='inferred'`
+   - Overrides `_ensure_source_registered()`: passes `source_tier=3` to `register_osint_source()`
+   - Overrides `scrape()`: adds fuzzy entity linking after parsing — loads existing events keyed by `(normalized_provider, date_day)`, checks each parsed event against it; matching events skip upsert and receive only an attribution; non-matching events proceed to `upsert_launch_event()`
+   - Broader `KEYWORDS` tuple covering news-style verbs: `"launch"`, `"liftoff"`, `"rocket"`, `"satellite"`, `"spacecraft"`, `"mission"`, `"orbit"`, `"countdown"`
+
+2. **`SpaceFlightNowScraper(NewsRSSScraper)`** — concrete:
+   - `source_name = "news_spaceflightnow"`
+   - `source_url = "https://spaceflightnow.com/feed/"`
+   - `SOURCE_NAME = "SpaceFlightNow RSS"`
+   - `PROVIDER_NAME = "SpaceFlightNow"`
+   - `feed_region()` → `"global"`
+
+3. **`NASASpaceflightScraper(NewsRSSScraper)`** — concrete:
+   - `source_name = "news_nasaspaceflight"`
+   - `source_url = "https://www.nasaspaceflight.com/feed/"`
+   - `SOURCE_NAME = "NASASpaceflight RSS"`
+   - `PROVIDER_NAME = "NASASpaceflight"`
+   - `feed_region()` → `"global"`
+
+4. **Fuzzy entity linking algorithm** (in `NewsRSSScraper.scrape()`):
+   - After `parse()`, load existing events: `SELECT slug, provider, launch_date FROM launch_events`
+   - Build index: `{(normalize_provider(p), date_day(d)): slug}`
+   - For each parsed event: compute key; if found in index, skip `upsert_launch_event()` and call only `add_attribution()`; else upsert with `claim_lifecycle='rumor'`
+   - Provider normalization: lowercase + strip whitespace
+   - Date day key: `launch_date.date()` (UTC)
+   - Match window: exact day match OR ±1 day tolerance
+
+5. **`claim_lifecycle` and `event_kind` in `LaunchEventCreate`**: Both fields already exist (added in Sprint 4). The `parse()` override sets them directly on the model instances before returning.
+
+6. **OSINT source seeding**: Both sources auto-registered on first `scrape()` call via `_ensure_source_registered()` with `source_tier=3`. No separate seed migration required.
+
+**Files to create:**
+- `project/src/openorbit/scrapers/news.py`
+- `project/tests/test_scraper_news.py`
+
+**Files to modify:**
+- `state/decisions.md` (this record)
+- `state/handoffs/sprint-5/architect.json`
+
+**Consequences:**  
+- ✅ Two independent Tier 3 OSINT sources, each with full audit trail
+- ✅ `claim_lifecycle='rumor'` correctly flags unverified media items
+- ✅ Fuzzy linking prevents duplicate events when news covers known launches
+- ✅ Auto-registered via existing `__init_subclass__` mechanism — no registry changes needed
+- ✅ `PublicFeedScraper` HTTP retry, rate limiting, and XML parsing fully reused
+- ❌ Fuzzy match is approximate (day-window + provider substring) — some false positives/negatives expected; acceptable for Tier 3 analytical context
+- ❌ News RSS items rarely carry precise launch times — `launch_date_precision='day'` will be the norm
+
+
+---
+
+## ADR-012: GitHub Actions CI/CD Pipeline
+
+**Date:** 2025-07-11  
+**Status:** Accepted  
+**Sprint item:** PO-026  
+
+### Context
+
+The project needed an automated continuous integration pipeline to enforce code quality checks (lint, type-check, test) on every push and pull request, and to gate merges on passing checks.
+
+### Decision
+
+Implement a GitHub Actions workflow (`.github/workflows/ci.yml`) with three parallel jobs:
+- **lint** — `ruff check` + `ruff format --check` on `src/` and `tests/`
+- **typecheck** — `mypy src/` in strict mode
+- **test** — `pytest --cov=src --cov-fail-under=80 -q`
+
+All jobs use `ubuntu-latest`, Python 3.12, and `uv` for dependency installation.
+
+### Consequences
+
+- ✅ Every PR is validated automatically before merge
+- ✅ 80% coverage minimum is enforced in CI, matching the project requirement
+- ✅ `uv sync` keeps dependency installation fast and reproducible
+- ✅ Three parallel jobs minimise total wall-clock CI time
+- ❌ `uv` installed via `pip install uv` (not the official action) — acceptable for speed; can switch to `astral-sh/setup-uv` if pinning becomes important
