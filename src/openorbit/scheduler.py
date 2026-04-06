@@ -28,9 +28,8 @@ async def run_scraper_job(scraper_class_path: str, source_id: int) -> None:
         module = importlib.import_module(module_path)
         scraper_cls = getattr(module, class_name)
 
-        async with get_db() as conn:
-            scraper = scraper_cls()
-            await scraper.scrape(conn)
+        scraper = scraper_cls()
+        await scraper.scrape()
 
         logger.info(f"Scraper job completed for source {source_id}")
     except Exception as e:

@@ -6,8 +6,16 @@ A Python section at the end shows how to use the API from code.
 
 > **Prerequisites:** Server running at `http://localhost:8000`. See [Quick Start](quickstart.md).
 >
-> **Note:** All GET endpoints are public — no API key needed. The database starts empty;
-> run scrapers or use `POST /v1/admin/sources/{id}/refresh` to populate it with data.
+> **Note:** All GET endpoints are public — no API key needed. The database is seeded by the
+> background scheduler on first startup (scrapers run automatically every 6 hours). You can also
+> trigger a manual refresh with `POST /v1/admin/sources/{id}/refresh` (requires admin key).
+>
+> **Data notes for current single-source setup:**
+> - With only Launch Library 2 seeded, events have `claim_lifecycle: "indicated"` and
+>   `result_tier: "tracked"` or `"emerging"` (no `verified` tier yet — that needs ≥2 attributions).
+> - Proximity search (`location=lat,lon`) only matches events that store coordinates in their
+>   `location` field. Launch Library 2 stores text names, not coordinates, so proximity returns
+>   empty results until multi-source scrapers populate geo-tagged events.
 
 ---
 
@@ -123,16 +131,21 @@ Each event is classified into one of three result tiers:
 
 ```bash
 # Only well-corroborated, high-confidence events
+# (requires ≥2 attributions from different sources — may be empty with single-source setup)
 curl -s "http://localhost:8000/v1/launches?result_tier=verified" \
   | jq '.data[] | {name, confidence_score, evidence_count}'
 
-# Events with at least 70% confidence
+# Events with at least 70% confidence (tracked tier or above)
 curl -s "http://localhost:8000/v1/launches?min_confidence=70" \
   | jq '.data[] | {name, confidence_score, result_tier}'
 
-# Tracked tier — good signal, not yet fully corroborated
+# Tracked tier — solid signal from at least one Tier 1/2 source
 curl -s "http://localhost:8000/v1/launches?result_tier=tracked&status=scheduled" \
   | jq '.data[] | {name, claim_lifecycle, evidence_count}'
+
+# Emerging tier — early signals, lower confidence
+curl -s "http://localhost:8000/v1/launches?result_tier=emerging" \
+  | jq '.data[] | {name, confidence_score}'
 
 # Count events per tier
 for TIER in verified tracked emerging; do
@@ -169,7 +182,7 @@ curl -s "http://localhost:8000/v1/launches?q=Starlink&claim_lifecycle=confirmed"
   | jq '.data[] | {name, confidence_score}'
 
 # Search + tier filter
-curl -s "http://localhost:8000/v1/launches?q=NROL&result_tier=verified" \
+curl -s "http://localhost:8000/v1/launches?q=NROL&result_tier=tracked" \
   | jq '.data[] | {name, launch_type, evidence_count}'
 ```
 
@@ -218,6 +231,11 @@ curl -s "http://localhost:8000/v1/launches?claim_lifecycle=retracted" \
 
 Use `location=lat,lon` and `radius_km` to find launches at or near a facility.
 
+> **Note:** Proximity filtering requires that the event's `location` field stores coordinates
+> in `lat,lon` format. Events from Launch Library 2 store text names (e.g.,
+> `"Cape Canaveral SFS, FL, USA"`), so proximity filtering returns empty results for those.
+> This feature is most useful once geo-tagged sources (e.g., NOTAMs, maritime warnings) are active.
+
 ```bash
 # Kennedy Space Center / Cape Canaveral (28.573, -80.649), 50 km radius
 curl -s "http://localhost:8000/v1/launches?location=28.573,-80.649&radius_km=50" \
@@ -231,8 +249,8 @@ curl -s "http://localhost:8000/v1/launches?location=34.743,-120.572&radius_km=30
 curl -s "http://localhost:8000/v1/launches?location=45.920,63.342&radius_km=100" \
   | jq '.data[] | {name, provider}'
 
-# Kourou (5.239, -52.769) — verified launches only, next 3 months
-curl -s "http://localhost:8000/v1/launches?location=5.239,-52.769&radius_km=50&result_tier=verified&status=scheduled&from=2026-04-01T00:00:00Z&to=2026-07-01T00:00:00Z" \
+# Kourou (5.239, -52.769) — scheduled launches, next 3 months
+curl -s "http://localhost:8000/v1/launches?location=5.239,-52.769&radius_km=50&status=scheduled&from=2026-04-01T00:00:00Z&to=2026-07-01T00:00:00Z" \
   | jq '.data[] | {name, launch_date, provider}'
 ```
 
@@ -243,53 +261,43 @@ curl -s "http://localhost:8000/v1/launches?location=5.239,-52.769&radius_km=50&r
 Each launch event has a full evidence chain showing every source attribution.
 
 ```bash
-# Get a single launch by slug
-curl -s "http://localhost:8000/v1/launches/falcon-9-starlink-6-32-2026-03-15" | jq .
+# First, find a slug you want to investigate
+curl -s "http://localhost:8000/v1/launches?q=Starlink&limit=1" \
+  | jq '.data[0] | {slug, name, evidence_count}'
 
-# Get the evidence chain directly
-curl -s "http://localhost:8000/v1/launches/falcon-9-starlink-6-32-2026-03-15/evidence" | jq .
+# Get full launch detail by slug
+curl -s "http://localhost:8000/v1/launches/ll2-387aadc6-68ca-4090-9be7-d57603ad7c79" | jq .
+
+# Get the evidence chain
+curl -s "http://localhost:8000/v1/launches/ll2-387aadc6-68ca-4090-9be7-d57603ad7c79/evidence" | jq .
 ```
 
-**Evidence response shape:**
+**Evidence response shape** (with multi-source data):
 
 ```json
 {
-  "launch_id": "falcon-9-starlink-6-32-2026-03-15",
-  "claim_lifecycle": "confirmed",
+  "launch_id": "ll2-387aadc6-68ca-4090-9be7-d57603ad7c79",
+  "claim_lifecycle": "indicated",
   "event_kind": "observed",
-  "evidence_count": 3,
-  "tier_coverage": [1, 2, 3],
+  "evidence_count": 1,
+  "tier_coverage": [],
   "attributions": [
     {
-      "source_name": "space_agency",
-      "source_tier": 1,
-      "evidence_type": "official_schedule",
-      "source_url": "https://ll.thespacedevs.com/...",
-      "observed_at": "2026-03-10T08:00:00Z",
-      "confidence_score": 95,
-      "confidence_rationale": "Official operator schedule"
-    },
-    {
-      "source_name": "notams",
-      "source_tier": 2,
-      "evidence_type": "notam",
-      "source_url": "https://notams.aim.faa.gov/...",
-      "observed_at": "2026-03-12T14:00:00Z",
-      "confidence_score": 88,
-      "confidence_rationale": "Active NOTAM covering launch window"
-    },
-    {
-      "source_name": "news_spaceflightnow",
-      "source_tier": 3,
-      "evidence_type": "media",
-      "source_url": "https://spaceflightnow.com/...",
-      "observed_at": "2026-03-11T10:30:00Z",
-      "confidence_score": 70,
-      "confidence_rationale": "News coverage of scheduled launch"
+      "source_name": "Launch Library 2",
+      "source_tier": null,
+      "evidence_type": null,
+      "source_url": null,
+      "observed_at": null,
+      "confidence_score": null,
+      "confidence_rationale": null
     }
   ]
 }
 ```
+
+> **Note:** Attribution fields (`source_tier`, `evidence_type`, `source_url`) are populated
+> by multi-source scrapers (NOTAMs, news RSS, social). With a single source the fields are
+> null. Once additional sources run, the `tier_coverage` array will show which tiers contributed.
 
 ```bash
 # Filter attributions to Tier 1 only
@@ -472,7 +480,7 @@ import httpx
 BASE = "http://localhost:8000"
 
 with httpx.Client(base_url=BASE) as client:
-    resp = client.get("/v1/launches", params={"status": "scheduled", "result_tier": "verified"})
+    resp = client.get("/v1/launches", params={"status": "scheduled", "result_tier": "tracked"})
     resp.raise_for_status()
     body = resp.json()
     for launch in body["data"]:
@@ -549,7 +557,7 @@ def get_evidence(slug: str, base: str = "http://localhost:8000") -> dict:
         resp.raise_for_status()
         return resp.json()
 
-evidence = get_evidence("falcon-9-starlink-6-32-2026-03-15")
+evidence = get_evidence("ll2-387aadc6-68ca-4090-9be7-d57603ad7c79")
 
 print(f"Lifecycle  : {evidence['claim_lifecycle']}")
 print(f"Event kind : {evidence['event_kind']}")
@@ -577,9 +585,9 @@ def search_launches(query: str, tier: str | None = None) -> list[dict]:
         resp.raise_for_status()
         return resp.json()["data"]
 
-# Verified Starlink launches
-starlink = search_launches("Starlink", tier="verified")
-print(f"Found {len(starlink)} verified Starlink launches")
+# Tracked Starlink launches (verified requires multi-source; tracked is more common with single source)
+starlink = search_launches("Starlink", tier="tracked")
+print(f"Found {len(starlink)} tracked Starlink launches")
 
 # Lunar/Artemis coverage across all tiers
 lunar = search_launches("lunar OR moon OR artemis")
