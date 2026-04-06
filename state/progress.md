@@ -42,3 +42,21 @@ Sprint resumed after rate-limit crash mid-PO-024-testing. Recovery was clean:
 
 ## Sprint 1 — (completed)
 - PO-001, PO-002, PO-003 delivered: 87% avg coverage, 50 tests
+
+## Sprint 4 Final Results — 2026-04-06
+
+**Status:** ✅ COMPLETED  
+**Items delivered:** 4/4  
+**New test files:** test_evidence_api.py, test_admin_api.py, test_schema_migration.py (pre-existing)  
+**New endpoints:**
+- `GET /v1/launches/{slug}/evidence` — Evidence chain with tier coverage
+- `GET /v1/admin/sources` — Source health monitoring (admin only)
+- `POST /v1/admin/sources/{id}/refresh` — Manual scrape trigger (admin only, HTTP 202)
+- `GET /v1/admin/stats` — Aggregated launch statistics (admin only)
+
+**New schema fields:**
+- `osint_sources.source_tier`, `launch_events.claim_lifecycle`, `launch_events.event_kind`
+- `event_attributions.evidence_type`, `event_attributions.source_tier`, `event_attributions.confidence_rationale`
+
+**Coverage:** All new modules at 100% line coverage  
+**Backlog remaining:** 16 pending items
