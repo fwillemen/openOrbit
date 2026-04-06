@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # Authentication
     OPENORBIT_ADMIN_KEY: str | None = None
 
+    # CORS — comma-separated allowed origins, or "*" for public/development.
+    # In production, set to your frontend domain, e.g. "https://app.example.com"
+    CORS_ORIGINS: str = "*"
+
 
 _settings: Settings | None = None
 

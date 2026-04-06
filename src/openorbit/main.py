@@ -133,11 +133,15 @@ def create_app() -> FastAPI:
         openapi_tags=openapi_tags,
     )
 
-    # CORS middleware (allow all origins for dev, restrict in production)
+    # CORS middleware — origins are configurable via CORS_ORIGINS env var.
+    # Wildcard "*" disables credentials to comply with the CORS spec.
+    # Set CORS_ORIGINS to specific domains in production (e.g. "https://app.example.com").
+    cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+    allow_credentials = cors_origins != ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # TODO: Restrict in production
-        allow_credentials=True,
+        allow_origins=cors_origins,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
