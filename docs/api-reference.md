@@ -164,6 +164,98 @@ Events progress through these epistemic states:
 
 ---
 
+## Scrapers
+
+### Tier 3 News RSS Scrapers
+
+openOrbit ships two Tier 3 news scrapers that ingest launch-related articles from public RSS feeds.
+
+#### Class Hierarchy
+
+```
+PublicFeedScraper
+└── NewsRSSScraper          (openorbit.scrapers.news)
+    ├── SpaceFlightNowScraper
+    └── NASASpaceflightScraper
+```
+
+#### Available Scrapers
+
+| Class | Source Name | Feed URL |
+|-------|-------------|----------|
+| `SpaceFlightNowScraper` | SpaceFlightNow RSS | https://spaceflightnow.com/feed/ |
+| `NASASpaceflightScraper` | NASASpaceflight RSS | https://www.nasaspaceflight.com/feed/ |
+
+#### OSINT Classification
+
+All events from `NewsRSSScraper` subclasses carry fixed OSINT metadata:
+
+| Field | Value | Meaning |
+|-------|-------|---------|
+| `source_tier` | `3` | Analytical/speculative source |
+| `evidence_type` | `media` | News article evidence |
+| `claim_lifecycle` | `rumor` | Default for unverified news articles |
+| `event_kind` | `inferred` | Derived from article content, not operator data |
+
+#### Fuzzy Entity Linking
+
+Before creating a new event, each article is matched against existing events using:
+- **Provider equality** (case-insensitive)
+- **Launch date within ±1 day**
+
+| Match Result | Action |
+|-------------|--------|
+| Match found | Add attribution to existing event only |
+| No match | Upsert new `claim_lifecycle='rumor'` event and add attribution |
+
+This prevents duplicate events when the same launch is covered by multiple outlets.
+
+See [Tier 3 News RSS Scrapers](scrapers/news.md) for full documentation.
+
+---
+
+### Bluesky Social Scraper
+
+`BlueskyScraper` (`openorbit.scrapers.bluesky`) queries the public Bluesky AT Protocol API
+for launch-related posts. **No credentials required.**
+
+#### Endpoints
+
+| Purpose | URL |
+|---------|-----|
+| Keyword search | `https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts` |
+| Account feed | `https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed` |
+
+#### Search Terms
+
+```
+launch, liftoff, rocket, satellite, spacecraft
+```
+
+#### Tracked Accounts
+
+```
+nasa.gov, spacex.com, nasaspaceflight.com, spaceflightnow.com, esa.int
+```
+
+#### Rate Limiting
+
+A **3-second pause** is enforced between every request. With 10 total requests per run,
+a full scrape cycle takes ~30 seconds. `refresh_interval_hours` is set to **2**.
+
+#### OSINT Classification
+
+| Field | Value | Meaning |
+|-------|-------|---------|
+| `source_tier` | `3` | Analytical/speculative — social media |
+| `evidence_type` | `media` | Social post as evidence |
+| `claim_lifecycle` | `rumor` | Unverified; requires corroboration to advance |
+| `event_kind` | `inferred` | Assembled from social signals |
+
+See [Bluesky Social Scraper](scrapers/bluesky.md) for full documentation.
+
+---
+
 ## Sources
 
 Endpoint for inspecting the OSINT source registry.
