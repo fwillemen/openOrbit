@@ -3,7 +3,7 @@
 > **Product:** openOrbit — Global Launch Event Tracking & OSINT Intelligence API
 > **Owner:** Product Owner Agent
 > **Source:** `state/goal.md` — OSINT-powered launch tracking API with rigorous intelligence methodology
-> **Last updated:** 2026-03-25 (Sprint 4 in progress — PO-027 done, PO-028 architecting)
+> **Last updated:** 2026-04-06 (Sprint 4 ✅ complete — all 21 Must Have done; PO-038/039/040 added for Sprint 5)
 
 ---
 
@@ -11,11 +11,11 @@
 
 | Priority      | Count | Done |
 |---------------|-------|------|
-| Must Have     | 21    | 18   |
-| Should Have   | 11    | 0    |
+| Must Have     | 21    | 21   |
+| Should Have   | 13    | 0    |
 | Could Have    | 2     | 0    |
-| Won't Have    | 3     | —    |
-| **Total**     | **37**| **18**|
+| Won't Have    | 4     | —    |
+| **Total**     | **40**| **21**|
 
 ---
 
@@ -916,7 +916,69 @@ rates, and claim lifecycle transition counts. Required for production operator v
 
 ---
 
-## Could Have
+### PO-038: Bluesky Social Scraper — Tier 3 AT Protocol Signal
+
+**Priority:** Should Have
+**Description:** Monitor the Bluesky social network (AT Protocol) for space launch
+signals using anonymous public search — no API key or credentials required. Posts from
+curated official accounts and keyword searches are ingested as Tier 3 attributions
+(`evidence_type='media'`). Unmatched posts create new events with
+`claim_lifecycle='rumor'`; existing events gain corroboration weight. This is the first
+Tier 3 social scraper and exercises the full `BaseScraper` + `ScraperRegistry` plugin
+interface with a new signal category.
+
+**Depends on:** PO-015 ✅ (plugin interface), PO-028 ✅ (evidence_type/claim_lifecycle schema)
+
+**Acceptance Criteria:**
+- [ ] `src/openorbit/scrapers/bluesky.py` implements `BlueskyScraper` extending `BaseScraper`
+- [ ] Uses `atproto` Python SDK (`uv add atproto`) for anonymous public search
+      — no API key, no user credentials, no Bluesky account required
+- [ ] Searches keywords: `"launch"`, `"liftoff"`, `"rocket"`, `"satellite"`, `"spacecraft"`
+      (configurable via ClassVar `SEARCH_TERMS`)
+- [ ] Fetches recent posts from curated account list (ClassVar `TRACKED_ACCOUNTS`):
+      NASA, SpaceX, NASASpaceflight, SpaceFlightNow, ESA — at minimum 5 accounts
+- [ ] Each matched post persisted with `source_tier=3`, `evidence_type='media'`,
+      `confidence_rationale` stating "Tier 3 social signal — Bluesky"
+- [ ] Unmatched posts create new `LaunchEventCreate` with `claim_lifecycle='rumor'`,
+      `event_kind='inferred'`; matched posts update existing event's attribution list
+- [ ] Respects rate limiting: polite 1 req/3s (well within ~20 req/min public limit)
+- [ ] Auto-registered via `ScraperRegistry`; scheduler picks it up without code changes
+- [ ] Unit tests with mocked `atproto` responses; ≥2 sample payloads
+- [ ] Integration tests: DB attribution insert, dedup on second run
+- [ ] `osint_sources` row seeded for Bluesky with `source_tier=3`
+
+**Status:** `pending`
+
+---
+
+### PO-039: Mastodon Social Scraper — Tier 3 Fediverse Signal
+
+**Priority:** Should Have
+**Description:** Monitor public Mastodon hashtag timelines for space launch signals.
+The Mastodon REST API is fully open — no authentication required for public hashtag
+timelines. The target instance is configurable via `MASTODON_INSTANCE` environment
+variable (default: `mastodon.social`), allowing operators to point at any Mastodon
+instance or self-hosted server. Posts ingested as Tier 3 attributions.
+
+**Depends on:** PO-015 ✅ (plugin interface), PO-028 ✅ (evidence_type/claim_lifecycle schema)
+
+**Acceptance Criteria:**
+- [ ] `src/openorbit/scrapers/mastodon.py` implements `MastodonScraper` extending `BaseScraper`
+- [ ] Target instance read from `MASTODON_INSTANCE` env var (default: `mastodon.social`)
+- [ ] Polls hashtag timelines: `GET https://{instance}/api/v1/timelines/tag/{hashtag}?limit=40`
+- [ ] Monitored hashtags (ClassVar `HASHTAGS`): `spacelaunch`, `spacex`, `nasa`,
+      `rocket`, `satellite` — at minimum 5 hashtags
+- [ ] Each post persisted with `source_tier=3`, `evidence_type='media'`
+- [ ] Posts deduplicated by Mastodon status URL across hashtag queries in same run
+- [ ] Respects `Link` header pagination but limits to 2 pages per hashtag per run
+- [ ] Auto-registered via `ScraperRegistry`; configurable `refresh_interval_hours` (default 2)
+- [ ] Unit tests with mocked httpx responses; tests cover instance config override
+- [ ] Integration tests: DB attribution insert, multi-hashtag dedup
+- [ ] `osint_sources` row seeded with `source_tier=3` and configurable instance URL
+
+**Status:** `pending`
+
+---
 
 > Valuable analytics features deferred without product risk. Implement only if sprint
 > capacity allows after all Must Have and Should Have items are complete.
@@ -970,6 +1032,23 @@ Particularly valuable for claim lifecycle transitions (e.g. `indicated → confi
 ## Won't Have (this release)
 
 > Explicitly out of scope. Documented here to prevent scope creep.
+
+---
+
+### PO-040: Twitter/X Social Scraper
+
+**Priority:** Won't Have
+**Description:** Integration with Twitter/X for social launch signals. **Not implemented
+due to cost and ToS barriers.** The free API tier provides 1 request/15 minutes with
+no search capability whatsoever. Meaningful read access requires Basic ($100/month),
+Pro ($5,000/month), or Enterprise ($42,000+/year). Scraping is explicitly against
+Twitter/X's updated Terms of Service and requires constant maintenance against
+anti-scraping defenses. This violates the project constraint of "strictly publicly
+available (free) OSINT data sources."
+
+Can be revisited if the project ever has a budget for API access.
+
+**Status:** `pending`
 
 ---
 

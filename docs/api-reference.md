@@ -44,12 +44,74 @@ List launch events with optional filtering and pagination.
 | `claim_lifecycle` | `string` | Filter by epistemic lifecycle state. One of: `rumor`, `indicated`, `corroborated`, `confirmed`, `retracted`. |
 | `location` | `string` | Centre point for proximity search, format: `lat,lon` (e.g. `28.573,-80.649`). |
 | `radius_km` | `integer ≥ 1` | Search radius in km (requires `location`). Defaults to `100`. |
-| `cursor` | `string` | Opaque cursor token for cursor-based pagination (takes precedence over `page`/`per_page`). |
+| `q` | `string` | Full-text search query across event name, provider, vehicle, and location. Supports FTS5 syntax (see below). When provided, results are ordered by relevance (BM25 rank) and cursor pagination is not supported. |
+| `cursor` | `string` | Opaque cursor token for cursor-based pagination (takes precedence over `page`/`per_page`). Not supported when `q` is provided. |
 | `limit` | `integer [1–100]` | Results per page for cursor pagination. Default: `25`. |
 | `page` | `integer ≥ 1` | Page number for page-based pagination. Default: `1`. |
 | `per_page` | `integer [1–100]` | Results per page for page-based pagination. Default: `25`. |
 
-#### Example
+#### Full-Text Search (`q` parameter)
+
+The `q` parameter enables SQLite FTS5-powered search across the `name`, `provider`, `vehicle`, and `location` fields of every launch event. Results are ranked by relevance using the BM25 algorithm.
+
+**Supported query syntax:**
+
+| Syntax | Example | Description |
+|--------|---------|-------------|
+| Single term | `falcon` | Match events containing the word `falcon` |
+| Phrase query | `"Falcon 9"` | Match events containing the exact phrase |
+| AND (implicit) | `falcon starlink` | Both terms must appear |
+| `OR` | `falcon OR atlas` | Either term must appear |
+| `NOT` | `falcon NOT starlink` | First term must appear; second must not |
+| Prefix | `star*` | Match any word starting with `star` |
+
+> **Note:** When `q` is provided, cursor-based pagination (`cursor` parameter) is not supported and will return a `400` error. Use `page`/`per_page` instead.
+
+#### Examples
+
+```bash
+# Simple keyword search
+curl "http://localhost:8000/v1/launches?q=Starlink"
+
+# Phrase search
+curl "http://localhost:8000/v1/launches?q=%22Falcon+9%22"
+
+# Combined: FTS + filter
+curl "http://localhost:8000/v1/launches?q=starlink&status=scheduled&per_page=5"
+
+# OR query
+curl "http://localhost:8000/v1/launches?q=falcon+OR+atlas"
+
+# NOT query (exclude term)
+curl "http://localhost:8000/v1/launches?q=falcon+NOT+starlink"
+```
+
+**Example response (abbreviated):**
+
+```json
+{
+  "data": [
+    {
+      "slug": "falcon-9-starlink-6-32-2025-01-22",
+      "name": "Falcon 9 | Starlink Group 6-32",
+      "provider": "SpaceX",
+      "vehicle": "Falcon 9",
+      "status": "scheduled",
+      "confidence_score": 92.0,
+      "result_tier": "verified",
+      "evidence_count": 3
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "page": 1,
+    "per_page": 25,
+    "next_cursor": null
+  }
+}
+```
+
+#### Example (filter only)
 
 ```bash
 curl "http://localhost:8000/v1/launches?provider=SpaceX&status=scheduled&per_page=10"
@@ -59,7 +121,7 @@ curl "http://localhost:8000/v1/launches?provider=SpaceX&status=scheduled&per_pag
 
 | Status | Reason |
 |--------|--------|
-| `400` | Invalid `location` format or invalid `cursor` token. |
+| `400` | Invalid `location` format, invalid `cursor` token, or `cursor` combined with `q`. |
 
 ---
 

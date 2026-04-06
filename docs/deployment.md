@@ -72,6 +72,26 @@ Key environment variables:
 | `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `PORT` | `8000` | Port the uvicorn server listens on |
 
+## Database Migrations
+
+After upgrading openOrbit (or on first run), apply pending schema migrations with:
+
+```bash
+uv run python -m openorbit.db migrate
+```
+
+This command is idempotent and safe to run multiple times. It handles schema changes
+including the FTS5 full-text search index (introduced in PO-034). If an older database
+is detected, the migration drops and rebuilds the `launch_events_fts` virtual table and
+its associated triggers automatically.
+
+> **When running in Docker**, exec into the container and run the migration before
+> starting the API:
+>
+> ```bash
+> docker exec -it openorbit uv run python -m openorbit.db migrate
+> ```
+
 ## Data Persistence
 
 The `data/` directory is mounted as a volume at `/app/data` inside the container.

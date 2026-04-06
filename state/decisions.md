@@ -1,7 +1,7 @@
 # Architecture Decision Records (ADRs)
 
 > **Auto-updated by:** Architect agent  
-> **Status:** 12 decisions recorded.
+> **Status:** 13 decisions recorded.
 
 ---
 
@@ -1565,3 +1565,114 @@ All jobs use `ubuntu-latest`, Python 3.12, and `uv` for dependency installation.
 - ✅ `uv sync` keeps dependency installation fast and reproducible
 - ✅ Three parallel jobs minimise total wall-clock CI time
 - ❌ `uv` installed via `pip install uv` (not the official action) — acceptable for speed; can switch to `astral-sh/setup-uv` if pinning becomes important
+
+
+---
+
+## ADR-013: Bluesky Social Scraper Architecture (PO-038)
+
+**Date:** 2026-04-06
+**Status:** Accepted
+
+### Context
+
+Sprint 5 requires a Tier 3 social signal scraper for Bluesky (bsky.app) to ingest
+launch-related posts from both keyword searches and tracked official accounts.
+Requirements: zero credentials (anonymous public API only), plain httpx GET calls
+(no atproto library), rate-limited at 1 req/3s.
+
+### Decision
+
+Implement `BlueskyScraper(BaseScraper)` in `project/src/openorbit/scrapers/bluesky.py`.
+
+**Class-level constants:**
+- `SEARCH_TERMS: ClassVar[tuple[str,...]]` — ("launch", "liftoff", "rocket", "satellite", "spacecraft")
+- `TRACKED_ACCOUNTS: ClassVar[tuple[str,...]]` — (nasa.gov, spacex.com, nasaspaceflight.com, spaceflightnow.com, esa.int)
+- `source_tier = 3`, `evidence_type = "media"`
+
+**HTTP endpoints (anonymous, no credentials):**
+- Search: `https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q={term}&limit=25`
+- Account feed: `https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor={handle}&limit=25`
+
+**Deduplication strategy:**
+- Slug: `sha1("bluesky|{post_uri}")` — unique per Bluesky post AT-URI
+- Second scrape of same post → `upsert_launch_event` is idempotent, attribution deduped by `add_attribution`
+
+**Parsing (post → LaunchEventCreate):**
+- `name`: first 120 chars of post text (truncated with "…" if longer)
+- `provider`: author handle (e.g., `nasa.gov`)
+- `launch_date`: `createdAt` field parsed as UTC datetime; fallback to `datetime.now(UTC)`
+- `launch_date_precision`: `"day"` (social posts rarely carry exact launch times)
+- `status`: `"scheduled"` (social signals are pre-event)
+- `claim_lifecycle`: `"rumor"` — unverified social signal
+- `event_kind`: `"inferred"` — assembled from social signals, not official schedule
+- `launch_type`: `"unknown"`
+- Relevance filter: post text must contain at least one SEARCH_TERMS keyword (case-insensitive)
+
+**Scrape flow:**
+1. Ensure source registered at `source_tier=3`
+2. For each SEARCH_TERM → `searchPosts` API → collect posts, `asyncio.sleep(3.0)` after each call
+3. For each TRACKED_ACCOUNT → `getAuthorFeed` API → collect posts, `asyncio.sleep(3.0)` after each call
+4. Deduplicate collected posts by URI (dict keyed on URI)
+5. Filter: keep only posts containing at least one keyword in text
+6. Parse each post → `LaunchEventCreate` → `upsert_launch_event` → `add_attribution`
+
+**Attribution metadata:**
+- `evidence_type="media"`, `source_tier=3`
+- `confidence_rationale="Tier 3 social signal — Bluesky"`
+- `source_url=` post URI link (`https://bsky.app/profile/{handle}/post/{rkey}`)
+
+**Rate limiting:** `asyncio.sleep(3.0)` between every HTTP call (search terms + account feeds).
+
+**OSINT source registration:** one entry named `"Bluesky Social"` at `source_tier=3`.
+
+### Alternatives Considered
+
+- **`atproto` Python library**: Rejected per acceptance criteria (no third-party AT Protocol lib).
+- **Authenticated API**: Rejected — public anonymous endpoint sufficient for Tier 3 signals.
+- **`PublicFeedScraper` base**: Rejected — that base handles RSS/Atom XML; Bluesky returns JSON.
+
+### Consequences
+
+- ✅ Zero credentials — fully anonymous, no API key rotation needed
+- ✅ Consistent with Tier 3 claim lifecycle (rumor/inferred) 
+- ✅ Slug-based dedup (ADR-9) prevents duplicate events across repeated scrapes
+- ✅ `asyncio.sleep(3.0)` respects public API rate limits
+- ⚠️ Post text used as event name — low fidelity; enriched by downstream corroboration
+- ⚠️ No pagination — limited to 25 results per term/account (sufficient for Tier 3 signals)
+
+---
+
+## ADR-021: FTS5 Full-Text Search for Launch Events
+
+**Status:** Accepted  
+**Date:** 2026-04-06  
+**Sprint Item:** PO-034
+
+**Context:**  
+Users need to search launch events by name, provider, vehicle, and location using natural language queries. The existing API supports structured filtering (by date, status, tier, etc.) but not full-text search. SQLite's FTS5 extension provides performant full-text search with BM25 ranking built-in. The schema already has a basic FTS5 table (`launch_events_fts`) with only `slug` and `name` fields, but this needs expansion to support comprehensive search.
+
+**Decision:**  
+Expand the existing `launch_events_fts` FTS5 virtual table to include `provider`, `vehicle`, and `location` fields in addition to `slug` and `name`. Use SQLite FTS5's content table feature to avoid data duplication — the FTS table is an index over `launch_events`, not a separate copy. Maintain sync via three triggers (`AFTER INSERT`, `AFTER UPDATE`, `AFTER DELETE`). Add a new `fts_search()` repository function in `db.py` that combines FTS5 `MATCH` queries with existing tier/limit/offset filters. Expose this via a new `?q=` query parameter on `GET /v1/launches`. Results are ranked by FTS5's BM25 algorithm (`ORDER BY rank`).
+
+**Migration Strategy:**  
+The FTS table and triggers are defined in `schema.sql`, so they apply to new installs automatically. For existing databases, the `init_db_schema()` function in `db.py` already runs the schema via `executescript()`, which is idempotent (`IF NOT EXISTS`). After creating/updating the FTS table, a one-time backfill is performed using FTS5's `rebuild` command: `INSERT INTO launch_events_fts(launch_events_fts) VALUES('rebuild')`. This atomic operation repopulates the index from the content table.
+
+**API Behavior:**  
+When `?q=` is present on `GET /v1/launches`, the endpoint delegates to `fts_search()` instead of `get_launch_events()`. FTS search still respects `result_tier`, `limit`, and `offset` filters but ignores date/provider/status filters (since FTS matching is the primary filter). If `?q=` is absent, the existing filter logic remains unchanged.
+
+**Consequences:**  
+- ✅ **Fast full-text search** across name, provider, vehicle, location with BM25 relevance ranking
+- ✅ **No new dependencies** — SQLite FTS5 is built-in (requires SQLite ≥3.9.0, which all modern systems have)
+- ✅ **Idempotent migration** — safe to run on new and existing databases
+- ✅ **Automatic sync** — triggers keep FTS index current with every insert/update/delete
+- ✅ **Minimal storage overhead** — FTS5 content tables don't duplicate data, just index tokens
+- ❌ **Write amplification** — every insert/update on `launch_events` triggers FTS index updates (negligible for this workload)
+- ❌ **Limited query syntax** — FTS5 uses SQLite's FTS query syntax, not full regex or natural language understanding
+
+**Alternatives Considered:**  
+1. **Elasticsearch / Meilisearch** — Rejected due to operational complexity and external dependency overhead for this scale
+2. **PostgreSQL tsvector** — Would require migrating from SQLite (out of scope for PO-034)
+3. **Python-side fuzzy matching** — Too slow for large datasets, no relevance ranking
+
+---

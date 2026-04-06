@@ -13,7 +13,9 @@ from typing import Annotated, Literal, cast
 from fastapi import APIRouter, HTTPException, Query
 
 from openorbit.db import (
+    count_fts_search,
     count_launch_events,
+    fts_search,
     get_db,
     get_event_attributions,
     get_launch_event_by_slug,
@@ -32,6 +34,7 @@ from openorbit.tiering import ResultTier, classify_result_tier
 def _normalized_result_tier_param(value: str | None) -> ResultTier | None:
     """Cast validated query input into the ResultTier type alias."""
     return cast(ResultTier, value) if value is not None else None
+
 
 router = APIRouter()
 
@@ -200,6 +203,7 @@ async def list_launches(
     ] = 25,
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=100)] = 25,
+    q: Annotated[str | None, Query(description="Full-text search")] = None,
 ) -> PaginatedLaunchResponse:
     """List launch events with optional filtering and pagination.
 
@@ -222,15 +226,47 @@ async def list_launches(
         limit: Maximum results for cursor-based pagination (1–100).
         page: Page number for page-based pagination (1-indexed).
         per_page: Results per page for page-based pagination (1–100).
+        q: Full-text search query (FTS5 syntax supported).
 
     Returns:
         Paginated list of launch events with metadata.
 
     Raises:
-        HTTPException: 400 if ``location`` format is invalid.
+        HTTPException: 400 if ``location`` format is invalid or ``cursor`` is
+            combined with ``q``.
     """
     date_from = from_date.isoformat() if from_date else None
     date_to = to_date.isoformat() if to_date else None
+
+    # Full-text search — short-circuits all other logic.
+    if q and q.strip():
+        if cursor is not None:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_request",
+                    "message": "Cursor pagination not supported with full-text search",
+                },
+            )
+        fts_offset = (page - 1) * per_page
+        async with get_db() as conn:
+            total = await count_fts_search(
+                conn,
+                q,
+                result_tier=_normalized_result_tier_param(result_tier),
+            )
+            page_events = await fts_search(
+                conn,
+                q,
+                result_tier=_normalized_result_tier_param(result_tier),
+                limit=per_page,
+                offset=fts_offset,
+            )
+        data = [_build_launch_response(e) for e in page_events]
+        meta = PaginationMeta(
+            total=total, page=page, per_page=per_page, next_cursor=None
+        )
+        return PaginatedLaunchResponse(data=data, meta=meta)
 
     # Validate and parse location query param.
     geo_center: tuple[float, float] | None = None
@@ -301,9 +337,9 @@ async def list_launches(
                         if ev.id == cursor_id:
                             start = i + 1
                             break
-                page_events = filtered[start: start + page_size]
+                page_events = filtered[start : start + page_size]
             else:
-                page_events = filtered[db_offset: db_offset + page_size]
+                page_events = filtered[db_offset : db_offset + page_size]
         else:
             total = await count_launch_events(
                 conn,

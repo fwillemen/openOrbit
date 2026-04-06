@@ -1,42 +1,19 @@
-# Sprint 4 — 2025-07-15 ✅ COMPLETED
-
-**Goal:** Fix critical SyntaxError, add Source Tier/Claim Lifecycle schema, Provenance API, Admin endpoints  
-**Budget:** $5.00 USD | **Items:** PO-027 ✅, PO-028 ✅, PO-029 ✅, PO-016 ✅
+# Sprint 5 — Should Have Sprint
+_Started: 2026-04-07_
 
 ## In Progress
-*(None — sprint complete)*
+| ID | Feature | Status |
+|----|---------|--------|
 
 ## Completed This Sprint
 | ID | Feature | Coverage |
 |----|---------|----------|
-| PO-027 | Fix notams.py Critical SyntaxError | All tests passing |
-| PO-028 | Source Tier System & Claim Lifecycle Schema Migration | 13 tests, 100% migration coverage |
-| PO-029 | Provenance API — Per-Event Evidence Chain Endpoint | 100% module coverage |
-| PO-016 | Admin & Source Health Monitoring Endpoints | 100% module coverage |
+| PO-017 | Tier 3 News RSS Scraper — SpaceFlightNow + NASASpaceflight | 92% |
+| PO-026 | CI/CD Pipeline — GitHub Actions automated test + lint gate | ✅ |
+| PO-038 | Bluesky Social Scraper — AT Protocol anonymous public search | 87% |
+| PO-039 | Mastodon Social Scraper — Fediverse hashtag timelines | 93% |
+| PO-034 | Launch Event Full-Text Search (SQLite FTS5) | 10 tests ✅ |
 
 ## Blocked
-*(None)*
-
----
-*Sprint 4 completed — 4/4 items delivered, 100% coverage on all new modules*
-
----
-
-# Sprint 3 — 2025-07-14  ✅ COMPLETED
-
-## In Progress
-*(None — sprint complete)*
-
-## Completed This Sprint
-| ID | Feature | Coverage |
-|----|---------|----------|
-| PO-023 | Test Coverage Hardening | 93% (374 tests, all modules ≥80%) |
-| PO-024 | API Key Authentication | 93% (374 tests), auth.py 100%, api/v1/auth.py 97% |
-| PO-014 | OpenAPI Documentation & Developer Guide | 93% (374 tests), models 100% |
-| PO-015 | Modular Source Plugin Interface | 93% (374 tests), base.py 100%, registry.py 100% |
-
-## Blocked
-*(None)*
-
----
-*Sprint 3 completed — 4/4 items delivered, 374 tests passing, 93% overall coverage*
+| ID | Feature | Blocker |
+|----|---------|---------|

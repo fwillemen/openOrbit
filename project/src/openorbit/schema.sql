@@ -103,9 +103,12 @@ ON event_attributions(event_slug);
 -- Full-Text Search Index (SQLite FTS5)
 -- =============================================================================
 CREATE VIRTUAL TABLE IF NOT EXISTS launch_events_fts USING fts5(
-    slug UNINDEXED, 
-    name, 
-    content='launch_events', 
+    slug UNINDEXED,
+    name,
+    provider,
+    vehicle,
+    location,
+    content='launch_events',
     content_rowid='rowid'
 );
 
@@ -129,15 +132,15 @@ ON api_keys(revoked_at);
 CREATE TRIGGER IF NOT EXISTS launch_events_fts_insert 
 AFTER INSERT ON launch_events 
 BEGIN 
-    INSERT INTO launch_events_fts(rowid, slug, name) 
-    VALUES (new.rowid, new.slug, new.name); 
+    INSERT INTO launch_events_fts(rowid, slug, name, provider, vehicle, location) 
+    VALUES (new.rowid, new.slug, new.name, new.provider, new.vehicle, new.location); 
 END;
 
 CREATE TRIGGER IF NOT EXISTS launch_events_fts_update 
 AFTER UPDATE ON launch_events 
 BEGIN 
     UPDATE launch_events_fts 
-    SET name = new.name 
+    SET name = new.name, provider = new.provider, vehicle = new.vehicle, location = new.location
     WHERE rowid = old.rowid; 
 END;
 

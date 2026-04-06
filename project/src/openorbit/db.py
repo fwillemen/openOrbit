@@ -19,6 +19,7 @@ import logging
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from contextlib import suppress as contextlib_suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -193,11 +194,64 @@ async def init_db_schema(conn: aiosqlite.Connection) -> None:
             "ALTER TABLE event_attributions ADD COLUMN confidence_rationale TEXT",
         ]
         for migration_sql in migrations:
-            try:
+            with contextlib_suppress(aiosqlite.OperationalError):
                 await conn.execute(migration_sql)
-            except aiosqlite.OperationalError:
-                pass  # Column already exists
         await conn.commit()
+
+        # FTS5 migration: expand to include provider, vehicle, location columns.
+        # The old table only had slug + name (2 data columns + rank = 3 total).
+        # The new table has slug + name + provider + vehicle + location (5 data cols).
+        try:
+            async with conn.execute("SELECT * FROM launch_events_fts LIMIT 0") as cur:
+                col_names = [d[0] for d in (cur.description or [])]
+        except Exception:
+            col_names = []
+
+        # 5 data cols + rank = 6; old schema has 3. Rebuild if insufficient.
+        if len(col_names) < 6:
+            await conn.executescript(
+                """
+                DROP TABLE IF EXISTS launch_events_fts;
+                DROP TRIGGER IF EXISTS launch_events_fts_insert;
+                DROP TRIGGER IF EXISTS launch_events_fts_update;
+                DROP TRIGGER IF EXISTS launch_events_fts_delete;
+                CREATE VIRTUAL TABLE IF NOT EXISTS launch_events_fts USING fts5(
+                    slug UNINDEXED,
+                    name,
+                    provider,
+                    vehicle,
+                    location,
+                    content='launch_events',
+                    content_rowid='rowid'
+                );
+                CREATE TRIGGER IF NOT EXISTS launch_events_fts_insert
+                AFTER INSERT ON launch_events
+                BEGIN
+                    INSERT INTO launch_events_fts(rowid, slug, name, provider, vehicle, location)
+                    VALUES (new.rowid, new.slug, new.name, new.provider, new.vehicle, new.location);
+                END;
+                CREATE TRIGGER IF NOT EXISTS launch_events_fts_update
+                AFTER UPDATE ON launch_events
+                BEGIN
+                    UPDATE launch_events_fts
+                    SET name = new.name, provider = new.provider,
+                        vehicle = new.vehicle, location = new.location
+                    WHERE rowid = old.rowid;
+                END;
+                CREATE TRIGGER IF NOT EXISTS launch_events_fts_delete
+                AFTER DELETE ON launch_events
+                BEGIN
+                    DELETE FROM launch_events_fts WHERE rowid = old.rowid;
+                END;
+                """
+            )
+            await conn.execute(
+                "INSERT INTO launch_events_fts(launch_events_fts) VALUES('rebuild')"
+            )
+            await conn.commit()
+            logger.info(
+                "Migrated launch_events_fts: expanded to provider/vehicle/location"
+            )
 
         logger.info("Database schema initialized successfully")
     except Exception as e:
@@ -889,6 +943,112 @@ async def search_launch_events(
     return events
 
 
+async def fts_search(
+    conn: aiosqlite.Connection,
+    q: str,
+    *,
+    result_tier: ResultTier | None = None,
+    limit: int = 25,
+    offset: int = 0,
+) -> list[LaunchEvent]:
+    """Full-text search launch events using FTS5 MATCH, ordered by BM25 relevance.
+
+    Args:
+        conn: Database connection.
+        q: FTS5 query string (supports FTS5 syntax).
+        result_tier: Optional filter by result tier.
+        limit: Maximum number of results.
+        offset: Result offset for page-based pagination.
+
+    Returns:
+        List of LaunchEvent models ordered by relevance.
+    """
+    if not q or not q.strip():
+        return []
+
+    sql = """
+        SELECT e.rowid as id, e.*,
+               (SELECT COUNT(*) FROM event_attributions WHERE event_slug = e.slug) as attribution_count
+        FROM launch_events_fts fts
+        JOIN launch_events e ON e.rowid = fts.rowid
+        WHERE launch_events_fts MATCH ?
+    """
+    params: list[str | int | float] = [q]
+
+    if result_tier is not None:
+        sql += f" AND ({result_tier_sql_expr('e')}) = ?"
+        params.append(result_tier)
+
+    sql += " ORDER BY rank LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
+    async with conn.execute(sql, params) as cursor:
+        rows = await cursor.fetchall()
+
+    events = []
+    for row in rows:
+        events.append(
+            LaunchEvent(
+                id=row["id"],
+                slug=row["slug"],
+                name=row["name"],
+                launch_date=datetime.fromisoformat(row["launch_date"]),
+                launch_date_precision=row["launch_date_precision"],
+                provider=row["provider"],
+                vehicle=row["vehicle"],
+                location=row["location"],
+                pad=row["pad"],
+                launch_type=row["launch_type"],
+                status=row["status"],
+                confidence_score=row["confidence_score"],
+                claim_lifecycle=row["claim_lifecycle"] or "indicated",
+                event_kind=row["event_kind"] or "observed",
+                created_at=datetime.fromisoformat(row["created_at"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+                attribution_count=row["attribution_count"],
+                inference_flags=json.loads(row["inference_flags"] or "[]"),
+            )
+        )
+
+    return events
+
+
+async def count_fts_search(
+    conn: aiosqlite.Connection,
+    q: str,
+    *,
+    result_tier: ResultTier | None = None,
+) -> int:
+    """Count launch events matching a full-text search query.
+
+    Args:
+        conn: Database connection.
+        q: FTS5 query string.
+        result_tier: Optional filter by result tier.
+
+    Returns:
+        Total count of matching launch events.
+    """
+    if not q or not q.strip():
+        return 0
+
+    sql = """
+        SELECT COUNT(*) FROM launch_events_fts fts
+        JOIN launch_events e ON e.rowid = fts.rowid
+        WHERE launch_events_fts MATCH ?
+    """
+    params: list[str | int | float] = [q]
+
+    if result_tier is not None:
+        sql += f" AND ({result_tier_sql_expr('e')}) = ?"
+        params.append(result_tier)
+
+    async with conn.execute(sql, params) as cursor:
+        row = await cursor.fetchone()
+
+    return int(row[0]) if row and row[0] is not None else 0
+
+
 # =============================================================================
 # Inference Flags
 # =============================================================================
@@ -1135,4 +1295,3 @@ async def flag_parse_error(
     )
     await connection.commit()
     logger.info(f"Flagged scrape record {scrape_record_id} as parse_error")
-
