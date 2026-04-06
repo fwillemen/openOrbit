@@ -41,6 +41,7 @@ List launch events with optional filtering and pagination.
 | `status` | `scheduled \| delayed \| launched \| failed \| cancelled` | Filter by event status. |
 | `min_confidence` | `float [0–100]` | Exclude events with a confidence score below this value. |
 | `has_inference_flag` | `string` | Filter to events that include a specific inference flag. |
+| `claim_lifecycle` | `string` | Filter by epistemic lifecycle state. One of: `rumor`, `indicated`, `corroborated`, `confirmed`, `retracted`. |
 | `location` | `string` | Centre point for proximity search, format: `lat,lon` (e.g. `28.573,-80.649`). |
 | `radius_km` | `integer ≥ 1` | Search radius in km (requires `location`). Defaults to `100`. |
 | `cursor` | `string` | Opaque cursor token for cursor-based pagination (takes precedence over `page`/`per_page`). |
@@ -88,6 +89,32 @@ curl "http://localhost:8000/v1/launches/falcon-9-starlink-6-32-2025-01-22"
 | Status | Reason |
 |--------|--------|
 | `404` | No launch event found for the given slug. |
+
+---
+
+## Source Tiers & Claim Lifecycle
+
+openOrbit uses a two-dimensional trust model for every launch event:
+
+### Source Tiers
+
+| Tier | Label | Examples |
+|------|-------|---------|
+| 1 | Official | SpaceX, NASA, ESA, JAXA, ISRO, CNSA, Arianespace |
+| 2 | Operational | NOTAMs, AIS, radar tracking feeds |
+| 3 | Analytical | SpaceflightNow, NASASpaceflight, amateur observers |
+
+### Claim Lifecycle
+
+Events progress through these epistemic states:
+
+| State | Meaning |
+|-------|---------|
+| `rumor` | Unverified mention |
+| `indicated` | Single credible source |
+| `corroborated` | Multiple independent sources agree |
+| `confirmed` | Official confirmation received |
+| `retracted` | Previously reported event cancelled or withdrawn |
 
 ---
 
@@ -245,6 +272,10 @@ curl http://localhost:8000/health
 | `launch_type` | `string` | Classification: `civilian`, `military`, or `unknown`. |
 | `status` | `string` | Event status: `scheduled`, `delayed`, `launched`, `failed`, `cancelled`. |
 | `confidence_score` | `float` | Composite confidence score (0–100). |
+| `claim_lifecycle` | `string` | Epistemic lifecycle state: `rumor` → `indicated` → `corroborated` → `confirmed` (or `retracted`). Default: `indicated`. |
+| `event_kind` | `string` | Whether the event is `observed` (direct evidence) or `inferred`. Default: `observed`. |
+| `result_tier` | `string` | Dashboard tier: `emerging`, `tracked`, or `verified`. |
+| `evidence_count` | `integer` | Number of source attributions for this event. |
 | `created_at` | `datetime` | Record creation timestamp. |
 | `updated_at` | `datetime` | Record last-updated timestamp. |
 | `sources` | `AttributionResponse[]` | OSINT sources that confirmed this event. |
@@ -266,6 +297,10 @@ curl http://localhost:8000/health
 | `name` | `string` | Source name. |
 | `url` | `string` | Direct URL to the source article or page. |
 | `scraped_at` | `datetime \| null` | When this attribution was captured. |
+| `evidence_type` | `string \| null` | Classification of evidence: `official_schedule`, `notam`, `press_release`, `social_media`, `analyst_report`. |
+| `source_tier` | `integer \| null` | Source credibility tier: `1`=Official, `2`=Operational, `3`=Analytical. |
+| `confidence_score` | `integer \| null` | Attribution-level confidence score (0–100). |
+| `confidence_rationale` | `string \| null` | Human-readable rationale for the confidence score. |
 
 ### `ApiKeyCreateRequest`
 

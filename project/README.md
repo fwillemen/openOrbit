@@ -135,15 +135,18 @@ Interactive docs (try-it-out): **http://localhost:8000/docs**
 
 ### Launch Result Tiers (Dashboard-Friendly)
 
-`GET /v1/launches` and `GET /v1/launches/{slug}` now include two fields that help dashboards segment results:
+`GET /v1/launches` and `GET /v1/launches/{slug}` now include fields that help dashboards segment results:
 
 - `result_tier` — one of `emerging`, `tracked`, `verified`
 - `evidence_count` — number of source attributions for that event
+- `claim_lifecycle` — Epistemic state: `rumor` → `indicated` → `corroborated` → `confirmed` | `retracted`
+- `event_kind` — `observed` | `inferred`
 
-You can also filter directly by tier:
+You can filter directly by tier or lifecycle state:
 
 ```bash
 curl -s "http://localhost:8000/v1/launches?result_tier=verified" | python -m json.tool
+curl -s "http://localhost:8000/v1/launches?claim_lifecycle=confirmed" | python -m json.tool
 ```
 
 Tier logic:
