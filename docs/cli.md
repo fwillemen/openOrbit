@@ -48,7 +48,7 @@ Initializing database at ./openorbit.db...
 
 ```bash
 # Initialize with default database path
-cd project/
+
 python -m openorbit.cli.db init
 
 # With custom database path (via environment variable)
@@ -59,7 +59,7 @@ DATABASE_URL="sqlite+aiosqlite:///./custom.db" python -m openorbit.cli.db init
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| `No module named openorbit` | Running outside project directory | Run from `project/` subdirectory |
+| `No module named openorbit` | Running outside project directory | Run from repo root |
 | `DATABASE_URL not set` | Missing environment variable | Set `DATABASE_URL` in `.env` or environment |
 | `Permission denied` | Cannot write to database directory | Check directory permissions |
 | `database is locked` | Another process has database open | Close other instances or wait |
@@ -106,7 +106,7 @@ DATABASE_URL="sqlite+aiosqlite:///:memory:"
 
 ```bash
 # 1. Clone repository and navigate to project
-cd project/
+
 
 # 2. Install dependencies
 uv sync

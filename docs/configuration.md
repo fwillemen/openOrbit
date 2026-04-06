@@ -140,10 +140,10 @@ export DATABASE_URL=sqlite+aiosqlite:///./data/openorbit.db
 
 ## .env File (Local Development)
 
-For local development, create a `.env` file in `project/` with your settings:
+For local development, create a `.env` file at the repo root with your settings:
 
 ```bash
-cd project/
+# (repo root)
 cp .env.example .env
 # Edit .env with your local settings
 ```
@@ -166,7 +166,7 @@ ignored by `.gitignore` to prevent accidental exposure of secrets.
 ### Local Development
 
 ```bash
-cd project/
+# (repo root)
 cp .env.example .env
 # Edit .env
 uv run uvicorn openorbit.main:app --reload

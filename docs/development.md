@@ -12,7 +12,7 @@ This guide covers everything a developer needs to know to contribute to openOrbi
 ## Project Structure
 
 ```
-project/
+
 ├── pyproject.toml              # Project metadata and dependencies (managed by uv)
 ├── uv.lock                     # Lock file for reproducible builds
 ├── .env.example                # Environment variable template
@@ -321,7 +321,7 @@ async def test_function_does_something(db: aiosqlite.Connection) -> None:
 Minimum 80% line coverage for database code:
 
 ```bash
-cd project/
+# at repo root
 uv run pytest tests/test_db.py --cov=src/openorbit/db --cov-report=term-missing
 ```
 
@@ -454,7 +454,7 @@ async def test_get_launch_returns_not_found(client: AsyncClient) -> None:
 ### Step 5: Run tests
 
 ```bash
-cd project/
+# at repo root
 uv run pytest tests/test_launches.py -v
 ```
 
@@ -487,7 +487,7 @@ class Settings(BaseSettings):
 
 ### Step 2: Document in .env.example
 
-Edit `project/.env.example`:
+Edit `.env.example`:
 
 ```bash
 # Maximum number of retry attempts for scraper operations
@@ -555,7 +555,7 @@ def test_sync_function_handles_edge_case() -> None:
 ### Running Tests
 
 ```bash
-cd project/
+# at repo root
 
 # Run all tests
 uv run pytest
@@ -717,7 +717,7 @@ git checkout -b feat/new-endpoint
 ### 2. Install development dependencies
 
 ```bash
-cd project/
+# at repo root
 uv sync
 ```
 
@@ -730,7 +730,7 @@ uv sync
 ### 4. Run all quality checks
 
 ```bash
-cd project/
+# at repo root
 
 # Format
 uv run ruff format src/ tests/
@@ -812,7 +812,7 @@ disable_error_code = ["arg-type"]
 - [Pydantic Documentation](https://docs.pydantic.dev/)
 - [pytest Documentation](https://docs.pytest.org/)
 - [mypy Documentation](https://www.mypy-lang.org/)
-- [Architecture Decision Records](../state/decisions.md)
+- [Architecture Decision Records](../_fleet/state/decisions.md)
 
 ---
 

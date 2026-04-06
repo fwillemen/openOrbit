@@ -130,7 +130,7 @@ registered, so you can safely create abstract mixins.
 ### 1. Create the module
 
 ```
-project/src/openorbit/scrapers/my_source.py
+src/openorbit/scrapers/my_source.py
 ```
 
 ### 2. Implement the class
@@ -193,7 +193,7 @@ class MySourceScraper(BaseScraper):
 ### 3. Register by importing in `scrapers/__init__.py`
 
 ```python
-# project/src/openorbit/scrapers/__init__.py
+# src/openorbit/scrapers/__init__.py
 
 from openorbit.scrapers import commercial, my_source, notams, space_agency  # noqa: F401
 ```
@@ -215,7 +215,7 @@ Expected output includes `"my_source"`.
 
 ### 5. Test
 
-Create `project/tests/scrapers/test_my_source.py` following the existing test patterns
+Create `tests/scrapers/test_my_source.py` following the existing test patterns
 (mock `httpx.AsyncClient`, verify `scrape()` returns the expected summary dict, and
 `parse()` returns correctly typed `LaunchEventCreate` instances).
 

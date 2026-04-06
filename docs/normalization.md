@@ -20,14 +20,14 @@ normalize(raw, source)
 LaunchEvent  ──or──  NormalizationError
 ```
 
-All pipeline code lives in `project/src/openorbit/pipeline/`:
+All pipeline code lives in `src/openorbit/pipeline/`:
 
 | Module | Purpose |
 |--------|---------|
 | `normalizer.py` | `normalize()` entry-point function |
 | `aliases.py` | `PROVIDER_ALIASES` and `PAD_LOCATIONS` lookup tables |
 | `exceptions.py` | `NormalizationError` exception |
-| `project/src/openorbit/models/launch_event.py` | `LaunchEvent` Pydantic model |
+| `src/openorbit/models/launch_event.py` | `LaunchEvent` Pydantic model |
 
 ---
 
@@ -232,7 +232,7 @@ contains a matching `pad` value, `normalize()` automatically fills `lat`, `lon`,
 
 ### Adding a Provider Alias
 
-Open `project/src/openorbit/pipeline/aliases.py` and add an entry to `PROVIDER_ALIASES`:
+Open `src/openorbit/pipeline/aliases.py` and add an entry to `PROVIDER_ALIASES`:
 
 ```python
 PROVIDER_ALIASES: dict[str, str] = {

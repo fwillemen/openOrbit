@@ -652,4 +652,4 @@ async def main():
 - [Database Schema](./schema.md) — Table definitions and relationships
 - [CLI Reference](../cli.md) — Database initialization command
 - [Developer Guide](../development.md) — How to add new database functions
-- [Pydantic Models](../../project/src/openorbit/models/db.py) — Model definitions
+- [Pydantic Models](../../src/openorbit/models/db.py) — Model definitions

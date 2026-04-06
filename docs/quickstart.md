@@ -7,7 +7,7 @@ This guide gets you from zero to a running openOrbit API in minutes.
 ## 1. Install Dependencies
 
 ```bash
-cd openOrbit/project
+cd openOrbit
 uv sync
 ```
 

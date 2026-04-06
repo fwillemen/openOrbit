@@ -150,5 +150,5 @@ To enforce CI before merging, configure branch protection on `main`:
 The `test` job enforces a **minimum 80% line coverage** via `--cov-fail-under=80`. Builds fail if coverage drops below this threshold. Run coverage locally with:
 
 ```bash
-cd project && uv run pytest --cov=src --cov-report=term-missing -q
+uv run pytest --cov=src --cov-report=term-missing -q
 ```
