@@ -23,7 +23,7 @@ Edit `.env` to set your secrets:
 
 ```ini
 # Required for managing API keys
-OPENORBIT_ADMIN_KEY=change-me-to-a-strong-secret
+OPENORBIT_ADMIN_KEY=your-admin-key-here
 
 # Optional overrides
 LOG_LEVEL=INFO
@@ -75,7 +75,7 @@ Use the bootstrap admin key from your `.env`:
 
 ```bash
 curl -s -X POST http://localhost:8000/v1/auth/keys \
-  -H "X-API-Key: change-me-to-a-strong-secret" \
+  -H "X-API-Key: your-admin-key-here" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-first-key", "is_admin": false}'
 ```
@@ -113,7 +113,7 @@ curl -s "http://localhost:8000/v1/launches?api_key=aBcDeFgHiJkLmNoPqRsTuVwXyZ012
 
 ```bash
 curl -s -X DELETE http://localhost:8000/v1/auth/keys/1 \
-  -H "X-API-Key: change-me-to-a-strong-secret"
+  -H "X-API-Key: your-admin-key-here"
 ```
 
 For full authentication documentation, see [docs/auth.md](auth.md).
