@@ -92,6 +92,52 @@ curl "http://localhost:8000/v1/launches/falcon-9-starlink-6-32-2025-01-22"
 
 ---
 
+### `GET /v1/launches/{slug}/evidence`
+
+Retrieve the full evidence chain for a specific launch event.
+
+| Field | Value |
+|-------|-------|
+| **Auth required** | No |
+| **Response** | `200 EvidenceResponse` |
+
+#### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `slug` | `string` | Launch event slug (URL-safe identifier). |
+
+#### Response: `EvidenceResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `launch_id` | `string` | Launch event slug. |
+| `claim_lifecycle` | `string` | Epistemic state: `rumor` \| `indicated` \| `corroborated` \| `confirmed` \| `retracted`. |
+| `event_kind` | `string` | `observed` or `inferred`. |
+| `evidence_count` | `integer` | Total number of attributions. |
+| `tier_coverage` | `integer[]` | Sorted list of distinct source tiers present. |
+| `attributions` | `EvidenceAttributionItem[]` | Ordered by `observed_at` descending. |
+
+#### `EvidenceAttributionItem`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source_name` | `string` | Name of the OSINT source. |
+| `source_tier` | `integer \| null` | Source tier (1=Official, 2=Operational, 3=Analytical). |
+| `evidence_type` | `string \| null` | Evidence classification. |
+| `source_url` | `string \| null` | Direct URL to the evidence. |
+| `observed_at` | `datetime \| null` | When the evidence was observed. |
+| `confidence_score` | `integer \| null` | Attribution confidence (0–100). |
+| `confidence_rationale` | `string \| null` | Rationale for confidence score. |
+
+#### Errors
+
+| Code | Description |
+|------|-------------|
+| `404` | Launch slug not found. |
+
+---
+
 ## Source Tiers & Claim Lifecycle
 
 openOrbit uses a two-dimensional trust model for every launch event:

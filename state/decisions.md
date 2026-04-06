@@ -1432,3 +1432,23 @@ Need admin endpoints for source monitoring, health stats, and manual refresh.
 ### Consequences
 - All admin endpoints behind X-API-Key auth
 - Backward-compatible addition
+
+## ADR-PO029: Provenance API Evidence Chain Endpoint
+
+**Date:** 2025-01-22
+**Status:** Accepted
+
+### Context
+Need a per-event endpoint returning all attribution evidence with tier coverage summary for dashboard and API consumers to understand the epistemic basis for each launch event.
+
+### Decision
+- New router `evidence.py` in `api/v1/` with `GET /launches/{slug}/evidence`
+- New Pydantic models: `EvidenceAttributionItem`, `EvidenceResponse`
+- Registered in `api/v1/__init__.py` alongside launches router (no prefix — router defines `/launches/{slug}/evidence`)
+- `LaunchEventResponse` gains `evidence_url: str | None` field populated as `/v1/launches/{slug}/evidence`
+- DB: reuse `get_launch_event_by_slug` + `get_event_attributions`; fixed both to persist/read `claim_lifecycle` and `event_kind`
+
+### Consequences
+- Minimal DB changes (read-only queries via existing functions, with bug fix for claim_lifecycle/event_kind persistence)
+- Backward-compatible (`evidence_url` added to existing response with `None` default)
+- `upsert_launch_event` now correctly stores `claim_lifecycle` and `event_kind` columns
