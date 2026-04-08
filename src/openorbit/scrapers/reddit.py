@@ -31,6 +31,7 @@ from openorbit.db import (
     update_source_last_scraped,
     upsert_launch_event,
 )
+from openorbit.config import get_settings
 from openorbit.models.db import LaunchEventCreate
 from openorbit.scrapers.base import BaseScraper
 
@@ -245,6 +246,7 @@ class RedditScraper(BaseScraper):
             all_posts: list[dict[str, Any]] = []
             async with httpx.AsyncClient(
                 timeout=timeout,
+                verify=get_settings().SCRAPER_SSL_VERIFY,
                 headers={"User-Agent": "openOrbit/0.1.0 (OSINT aggregator)"},
             ) as client:
                 for subreddit in self.SUBREDDITS:

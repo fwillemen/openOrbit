@@ -25,13 +25,13 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
 import re
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 import httpx
 
+from openorbit.config import get_settings
 from openorbit.db import (
     _db_connection,
     add_attribution,
@@ -142,12 +142,12 @@ class TwitterScraper(BaseScraper):
         return any(kw in lower for kw in _LAUNCH_KEYWORDS)
 
     def _get_bearer_token(self) -> str | None:
-        """Read the Twitter bearer token from the environment.
+        """Read the Twitter bearer token from settings.
 
         Returns:
             The bearer token string, or ``None`` when not configured.
         """
-        return os.environ.get("TWITTER_BEARER_TOKEN")
+        return get_settings().TWITTER_BEARER_TOKEN
 
     async def _fetch_search(
         self,
@@ -303,6 +303,7 @@ class TwitterScraper(BaseScraper):
             timeout = httpx.Timeout(30.0)
             async with httpx.AsyncClient(
                 timeout=timeout,
+                verify=get_settings().SCRAPER_SSL_VERIFY,
                 headers={
                     "User-Agent": "openOrbit/0.1.0 (OSINT aggregator)",
                     "Authorization": f"Bearer {bearer_token}",

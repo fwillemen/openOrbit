@@ -18,6 +18,10 @@ openOrbit/
 │   ├── tiering.py          # Result tier classification
 │   ├── scheduler.py        # Background scrape scheduler
 │   ├── auth.py             # API key management
+│   ├── cli_db.py           # DB CLI implementation (init command)
+│   ├── cli/db.py           # Compatibility entry point for python -m openorbit.cli.db
+│   ├── middleware/
+│   │   └── rate_limiter.py # Sliding-window IP rate limiter
 │   ├── api/v1/             # Versioned REST endpoints
 │   │   ├── launches.py     # GET /v1/launches (+ ?q= FTS search)
 │   │   ├── sources.py      # GET /v1/sources
@@ -26,18 +30,23 @@ openOrbit/
 │   │   └── auth.py         # API key CRUD
 │   ├── scrapers/           # Pluggable OSINT scrapers
 │   │   ├── base.py         # BaseScraper ABC + auto-registry hook
+│   │   ├── registry.py     # ScraperRegistry (populated via __init_subclass__)
 │   │   ├── public_feed.py  # Shared RSS/Atom adapter
 │   │   ├── space_agency.py # Launch Library 2
 │   │   ├── spacex_official.py
 │   │   ├── celestrak.py    # CelesTrak TLE feed
 │   │   ├── notams.py       # FAA NOTAM scraper
 │   │   ├── news.py         # SpaceflightNow + NASASpaceflight RSS
+│   │   ├── commercial.py   # Commercial launch provider feeds
 │   │   ├── bluesky.py      # Bluesky public AT Protocol API
 │   │   ├── mastodon.py     # Mastodon public API
+│   │   ├── reddit.py       # Reddit public JSON API
+│   │   ├── fourchan.py     # 4chan /sci/ + /k/ board scraper
+│   │   ├── twitter.py      # Twitter/X API v2 scraper (bearer token required)
 │   │   └── *_official.py   # ESA, JAXA, ISRO, Arianespace, CNSA
 │   ├── pipeline/           # Normalisation, deduplication, inference
 │   └── models/             # Pydantic API + DB models
-├── tests/                  # pytest test suite (553 tests, 90% coverage)
+├── tests/                  # pytest test suite (37 modules, ≥80% coverage)
 ├── docs/                   # Developer documentation
 ├── pyproject.toml          # Single config: uv, ruff, mypy, pytest
 ├── Dockerfile              # Multi-stage build (builder + runtime)
@@ -145,8 +154,27 @@ uv run ruff check src/ tests/ --fix               # lint
 uv run ruff format src/ tests/                    # format
 uv run mypy src/                                  # type check
 uv run uvicorn openorbit.main:app --reload        # dev server
-uv run python -m openorbit.db migrate             # apply schema migrations
+uv run python -m openorbit.cli.db init            # initialise / migrate schema
 ```
+
+## Environment Setup
+
+Always create `.env` from the template before running scrapers:
+```bash
+cp .env.example .env
+```
+
+In corporate/proxy environments with SSL inspection (e.g. Capgemini), set:
+```ini
+SCRAPER_SSL_VERIFY=false
+```
+This is controlled via `Settings.SCRAPER_SSL_VERIFY` (default `True`) and passed as `verify=` to every `httpx.AsyncClient` instantiation across all scrapers. Never hardcode `verify=False` — always route through settings.
+
+For the Twitter scraper, also set:
+```ini
+TWITTER_BEARER_TOKEN=your-bearer-token
+```
+This is controlled via `Settings.TWITTER_BEARER_TOKEN` (default `None`). Without it the scraper exits silently.
 
 ## Database Access Pattern
 

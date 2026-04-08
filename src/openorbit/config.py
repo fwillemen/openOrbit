@@ -34,9 +34,13 @@ class Settings(BaseSettings):
     SCRAPER_DELAY_SECONDS: int = 2
     SCRAPER_TIMEOUT_SECONDS: int = 30
     SCRAPER_MAX_RETRIES: int = 3
+    SCRAPER_SSL_VERIFY: bool = True
 
     # Authentication
     OPENORBIT_ADMIN_KEY: str | None = None
+
+    # Twitter/X API
+    TWITTER_BEARER_TOKEN: str | None = None
 
     # CORS — comma-separated allowed origins, or "*" for public/development.
     # In production, set to your frontend domain, e.g. "https://app.example.com"

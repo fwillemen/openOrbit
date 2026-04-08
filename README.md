@@ -18,6 +18,7 @@ openOrbit is a modern REST API service that aggregates and tracks orbital launch
 - 🇮🇳 **ISRO Official Adapter** — Public ISRO feed connector for Indian launch-related updates
 - 🇪🇺 **Arianespace Adapter** — Public Arianespace feed connector for European commercial launch updates
 - 🇨🇳 **CNSA Adapter** — Public CNSA feed connector for Chinese launch-related updates
+- 🐦 **Twitter/X Adapter** — Twitter API v2 scraper for launch-related tweets from tracked accounts (requires bearer token)
 - 🔄 **Data Normalization Pipeline** — Converts raw scraper dicts into canonical `LaunchEvent` models with provider alias resolution, pad geo-enrichment, and multi-format date parsing
 - 🔄 **Async Architecture** — Non-blocking I/O for high-performance data collection
 - 📝 **Structured Logging** — JSON logs for production, pretty console for dev
@@ -261,6 +262,8 @@ All configuration is managed via environment variables (see `.env.example`):
 | `SCRAPER_DELAY_SECONDS` | `2` | Delay between API requests (rate limiting) |
 | `SCRAPER_TIMEOUT_SECONDS` | `30` | HTTP request timeout for scrapers |
 | `SCRAPER_MAX_RETRIES` | `3` | Maximum retry attempts on transient failures |
+| `SCRAPER_SSL_VERIFY` | `true` | Set to `false` in corporate/proxy environments with SSL inspection (e.g. Capgemini) |
+| `TWITTER_BEARER_TOKEN` | _(unset)_ | Twitter/X API v2 Bearer token; leave unset to disable the Twitter scraper |
 
 ## Development
 
@@ -364,6 +367,79 @@ uv run python -m openorbit.scrapers.cnsa_official
 Each adapter ingests RSS/Atom-like public feed entries and maps launch-related items
 into canonical launch events.
 
+### Running Twitter/X Scraper
+
+The Twitter scraper requires an API v2 Bearer token. Set it in `.env` first:
+
+```ini
+TWITTER_BEARER_TOKEN=your-bearer-token-here
+```
+
+Then run:
+
+```bash
+cd project
+uv run python -m openorbit.scrapers.twitter
+```
+
+Without a bearer token the scraper exits silently with `total_fetched: 0` — it will not fail.
+Free-tier rate limiting (180 requests / 15 min) is respected automatically.
+
+### Inspecting the Database Directly
+
+All commands below use the built-in `sqlite3` Python module against the local `openorbit.db` file.
+
+**Schema — show all table definitions:**
+```bash
+python3 -c "
+import sqlite3
+conn = sqlite3.connect('openorbit.db')
+for row in conn.execute(\"SELECT sql FROM sqlite_master WHERE type='table' ORDER BY name\"):
+    print(row[0])
+    print()
+conn.close()
+"
+```
+
+**Row counts per table:**
+```bash
+python3 -c "
+import sqlite3
+conn = sqlite3.connect('openorbit.db')
+for table in ['osint_sources', 'raw_scrape_records', 'launch_events', 'event_attributions']:
+    count = conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+    print(f'{table}: {count}')
+conn.close()
+"
+```
+
+**Browse launch events (slug, name, provider, status, confidence, lifecycle):**
+```bash
+python3 -c "
+import sqlite3
+conn = sqlite3.connect('openorbit.db')
+conn.row_factory = sqlite3.Row
+rows = conn.execute('SELECT slug, name, provider, status, confidence_score, claim_lifecycle FROM launch_events LIMIT 20').fetchall()
+for r in rows:
+    print(dict(r))
+conn.close()
+"
+```
+
+**Browse sources and last scrape timestamps:**
+```bash
+python3 -c "
+import sqlite3
+conn = sqlite3.connect('openorbit.db')
+conn.row_factory = sqlite3.Row
+for r in conn.execute('SELECT id, name, source_tier, last_scraped_at FROM osint_sources'):
+    print(dict(r))
+conn.close()
+"
+```
+
+Alternatively, open `openorbit.db` in [DB Browser for SQLite](https://sqlitebrowser.org/) for a full visual schema and table browser.
+
 ### Understanding `/v1/sources` Output
 
 The `/v1/sources` endpoint currently merges two source views:
@@ -396,6 +472,7 @@ The table below summarizes what each current connector contributes.
 | `isro_official` | Official agency publication feed | Announcement-driven | Medium | High trust source for ISRO-related missions | RSS/news text requires inference, less structured |
 | `arianespace_official` | Official operator publication feed | Announcement-driven | Medium | High trust for Arianespace mission updates | Feed granularity varies; less structured launch fields |
 | `cnsa_official` | Official/state publication feed | Announcement-driven | Medium-Low to Medium | Geographic coverage expansion for China missions | Feed consistency and structure can vary over time |
+| `twitter` | Twitter/X API v2 recent search | Real-time / recent | Low-Medium | Fast signal for breaking launch events; tracked account feeds | Requires paid bearer token; free tier is heavily rate-limited |
 
 Practical takeaway: combine structured APIs (`space_agency`, `spacex_official`) with
 corroboration feeds (`celestrak`, `notams`, regional official feeds) for the best

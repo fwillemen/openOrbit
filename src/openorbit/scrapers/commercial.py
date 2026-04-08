@@ -260,7 +260,7 @@ class CommercialLaunchScraper(BaseScraper):
 
         for attempt in range(self.settings.SCRAPER_MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(timeout=timeout, verify=self.settings.SCRAPER_SSL_VERIFY) as client:
                     if attempt > 0:
                         backoff_delay = 2**attempt
                         logger.info(
