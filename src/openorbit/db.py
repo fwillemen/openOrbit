@@ -198,6 +198,11 @@ async def init_db_schema(conn: aiosqlite.Connection) -> None:
                 await conn.execute(migration_sql)
         await conn.commit()
 
+        # Image URL column for social-media imagery support.
+        with contextlib_suppress(aiosqlite.OperationalError):
+            await conn.execute("ALTER TABLE launch_events ADD COLUMN image_urls TEXT")
+        await conn.commit()
+
         # FTS5 migration: expand to include provider, vehicle, location columns.
         # The old table only had slug + name (2 data columns + rank = 3 total).
         # The new table has slug + name + provider + vehicle + location (5 data cols).
@@ -595,7 +600,7 @@ async def upsert_launch_event(
             SET name = ?, launch_date = ?, launch_date_precision = ?, provider = ?,
                 vehicle = ?, location = ?, pad = ?, launch_type = ?, status = ?,
                 confidence_score = ?, updated_at = ?,
-                claim_lifecycle = ?, event_kind = ?
+                claim_lifecycle = ?, event_kind = ?, image_urls = ?
             WHERE slug = ?
             """,
             (
@@ -612,6 +617,7 @@ async def upsert_launch_event(
                 now,
                 event.claim_lifecycle,
                 event.event_kind,
+                json.dumps(event.image_urls) if event.image_urls else None,
                 slug,
             ),
         )
@@ -623,8 +629,8 @@ async def upsert_launch_event(
             INSERT INTO launch_events (
                 slug, name, launch_date, launch_date_precision, provider, vehicle,
                 location, pad, launch_type, status, confidence_score,
-                claim_lifecycle, event_kind, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                claim_lifecycle, event_kind, image_urls, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 slug,
@@ -640,6 +646,7 @@ async def upsert_launch_event(
                 confidence_score,
                 event.claim_lifecycle,
                 event.event_kind,
+                json.dumps(event.image_urls) if event.image_urls else None,
                 now,
                 now,
             ),
@@ -759,6 +766,7 @@ async def get_launch_events(
                 updated_at=datetime.fromisoformat(row["updated_at"]),
                 attribution_count=row["attribution_count"],
                 inference_flags=json.loads(row["inference_flags"] or "[]"),
+                image_urls=json.loads(row["image_urls"] or "[]"),
             )
         )
 
@@ -887,6 +895,7 @@ async def get_launch_event_by_slug(
         updated_at=datetime.fromisoformat(row["updated_at"]),
         attribution_count=row["attribution_count"],
         inference_flags=json.loads(row["inference_flags"] or "[]"),
+        image_urls=json.loads(row["image_urls"] or "[]"),
     )
 
 
@@ -937,6 +946,7 @@ async def search_launch_events(
                 updated_at=datetime.fromisoformat(row["updated_at"]),
                 attribution_count=row["attribution_count"],
                 inference_flags=json.loads(row["inference_flags"] or "[]"),
+                image_urls=json.loads(row["image_urls"] or "[]"),
             )
         )
 
@@ -1007,6 +1017,7 @@ async def fts_search(
                 updated_at=datetime.fromisoformat(row["updated_at"]),
                 attribution_count=row["attribution_count"],
                 inference_flags=json.loads(row["inference_flags"] or "[]"),
+                image_urls=json.loads(row["image_urls"] or "[]"),
             )
         )
 

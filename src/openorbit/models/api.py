@@ -107,6 +107,7 @@ class LaunchEventResponse(BaseModel):
     event_kind: str = "observed"
     sources: list[AttributionResponse] = []
     inference_flags: list[str] = []
+    image_urls: list[str] = []
     evidence_url: str | None = None
 
 

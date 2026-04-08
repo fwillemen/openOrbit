@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS launch_events (
     created_at TEXT NOT NULL,  -- ISO 8601 timestamp
     updated_at TEXT NOT NULL,  -- ISO 8601 timestamp
     claim_lifecycle TEXT NOT NULL DEFAULT 'indicated',
-    event_kind TEXT NOT NULL DEFAULT 'observed'
+    event_kind TEXT NOT NULL DEFAULT 'observed',
+    image_urls TEXT  -- JSON array of image/attachment URLs
 );
 
 CREATE INDEX IF NOT EXISTS idx_launch_events_date 
