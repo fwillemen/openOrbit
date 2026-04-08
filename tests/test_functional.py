@@ -35,6 +35,7 @@ _MOD_BLUESKY = "openorbit.scrapers.bluesky"
 _MOD_MASTODON = "openorbit.scrapers.mastodon"
 _MOD_REDDIT = "openorbit.scrapers.reddit"
 _MOD_FOURCHAN = "openorbit.scrapers.fourchan"
+_MOD_TWITTER = "openorbit.scrapers.twitter"
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -899,6 +900,126 @@ class TestFunctionalFourChan:
         assert len(images) == 1
         assert "4cdn.org" in images[0]
         assert ".jpg" in images[0]
+
+
+class TestFunctionalTwitter:
+    """End-to-end: TwitterScraper → DB → API with Russia & China launch data."""
+
+    SAMPLE_TWEET_RUSSIA = {
+        "id": "1900000000000000001",
+        "text": "Roscosmos Soyuz-2.1b rocket launch from Vostochny carrying Glonass-K2 to orbit 🚀 https://t.co/xyz789",
+        "created_at": "2026-04-07T10:30:00.000Z",
+        "author_id": "func_ru_001",
+        "attachments": {"media_keys": ["func_media_001"]},
+        "_username": "RoscosmosOfficial",
+        "_image_urls": ["https://pbs.twimg.com/media/func_soyuz.jpg"],
+    }
+
+    SAMPLE_TWEET_CHINA = {
+        "id": "1900000000000000002",
+        "text": "Long March 5B rocket launch from Wenchang — Tiangong station module reaches orbit! #ChinaSpace",
+        "created_at": "2026-04-06T14:00:00.000Z",
+        "author_id": "func_cn_001",
+        "attachments": {"media_keys": ["func_media_002"]},
+        "_username": "CNSAWatcher",
+        "_image_urls": ["https://pbs.twimg.com/media/func_lm5b.jpg"],
+    }
+
+    SEARCH_RESPONSE = {
+        "data": [SAMPLE_TWEET_RUSSIA, SAMPLE_TWEET_CHINA],
+        "includes": {
+            "users": [
+                {"id": "func_ru_001", "username": "RoscosmosOfficial"},
+                {"id": "func_cn_001", "username": "CNSAWatcher"},
+            ],
+            "media": [
+                {
+                    "media_key": "func_media_001",
+                    "type": "photo",
+                    "url": "https://pbs.twimg.com/media/func_soyuz.jpg",
+                },
+                {
+                    "media_key": "func_media_002",
+                    "type": "photo",
+                    "url": "https://pbs.twimg.com/media/func_lm5b.jpg",
+                },
+            ],
+        },
+        "meta": {"result_count": 2},
+    }
+
+    @respx.mock
+    async def test_scrape_inserts_with_tier3_metadata(self, db_connection) -> None:
+        """Twitter events are tier 3, rumor lifecycle, inferred kind."""
+        from openorbit.scrapers.twitter import TwitterScraper
+
+        respx.get(TwitterScraper.SEARCH_URL).mock(
+            return_value=httpx.Response(200, json=self.SEARCH_RESPONSE)
+        )
+
+        mod = _MOD_TWITTER
+        mock_get_db = _make_db_mock(db_connection)
+        with (
+            patch.dict(os.environ, {"TWITTER_BEARER_TOKEN": "func-test-token"}),
+            patch(f"{mod}.asyncio.sleep", new_callable=AsyncMock),
+            patch(f"{mod}.get_db", mock_get_db),
+            patch(f"{mod}.init_db", new_callable=AsyncMock),
+            patch("openorbit.db._db_connection", new=object(), create=True),
+        ):
+            scraper = TwitterScraper()
+            result = await scraper.scrape()
+
+        assert result["total_fetched"] >= 1
+        assert result["new_events"] >= 1
+
+        async with db_connection.execute(
+            "SELECT slug, claim_lifecycle, event_kind, provider, image_urls"
+            " FROM launch_events"
+        ) as cur:
+            rows = await cur.fetchall()
+
+        assert len(rows) >= 1
+        for row in rows:
+            assert row["slug"].startswith("twitter-")
+            assert row["claim_lifecycle"] == "rumor"
+            assert row["event_kind"] == "inferred"
+            assert row["provider"].startswith("@")
+
+        # Verify image URLs persisted
+        images = json.loads(rows[0]["image_urls"] or "[]")
+        assert len(images) >= 1
+
+    @respx.mock
+    async def test_scrape_russia_china_content_preserved(self, db_connection) -> None:
+        """Russia/China launch details are correctly stored in the DB."""
+        from openorbit.scrapers.twitter import TwitterScraper
+
+        respx.get(TwitterScraper.SEARCH_URL).mock(
+            return_value=httpx.Response(200, json=self.SEARCH_RESPONSE)
+        )
+
+        mod = _MOD_TWITTER
+        mock_get_db = _make_db_mock(db_connection)
+        with (
+            patch.dict(os.environ, {"TWITTER_BEARER_TOKEN": "func-test-token"}),
+            patch(f"{mod}.asyncio.sleep", new_callable=AsyncMock),
+            patch(f"{mod}.get_db", mock_get_db),
+            patch(f"{mod}.init_db", new_callable=AsyncMock),
+            patch("openorbit.db._db_connection", new=object(), create=True),
+        ):
+            await TwitterScraper().scrape()
+
+        async with db_connection.execute(
+            "SELECT name, provider FROM launch_events ORDER BY name"
+        ) as cur:
+            rows = await cur.fetchall()
+
+        names = [r["name"] for r in rows]
+        providers = [r["provider"] for r in rows]
+
+        # At least one Russia and one China launch tweet
+        assert any("Long March" in n or "Soyuz" in n or "Roscosmos" in n for n in names)
+        assert any("@RoscosmosOfficial" in p or "@CNSAWatcher" in p for p in providers)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

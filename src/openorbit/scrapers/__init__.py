@@ -19,4 +19,5 @@ from openorbit.scrapers import (  # noqa: F401
     reddit,
     space_agency,
     spacex_official,
+    twitter,
 )
