@@ -313,6 +313,19 @@ class BlueskyScraper(BaseScraper):
                 launch_date = datetime.now(UTC)
 
             slug = _make_slug(uri)
+            # Extract image URLs from post embeds
+            image_urls: list[str] = []
+            embed = post.get("embed", {})
+            if embed:
+                for img in embed.get("images", []):
+                    fullsize = img.get("fullsize", "")
+                    if fullsize:
+                        image_urls.append(fullsize)
+                # External link thumbnail
+                ext_thumb = (embed.get("external", {}) or {}).get("thumb", "")
+                if ext_thumb:
+                    image_urls.append(ext_thumb)
+
             events.append(
                 LaunchEventCreate(
                     name=text[:120],
@@ -325,6 +338,7 @@ class BlueskyScraper(BaseScraper):
                     launch_type="unknown",
                     status="scheduled",
                     slug=slug,
+                    image_urls=image_urls,
                     claim_lifecycle="rumor",
                     event_kind="inferred",
                 )

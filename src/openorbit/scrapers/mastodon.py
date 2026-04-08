@@ -335,6 +335,14 @@ class MastodonScraper(BaseScraper):
                 launch_date = datetime.now(UTC)
 
             slug = _make_slug(url)
+            # Extract image URLs from media attachments
+            image_urls: list[str] = []
+            for attachment in status.get("media_attachments", []):
+                if attachment.get("type") == "image":
+                    img_url = attachment.get("url", "")
+                    if img_url:
+                        image_urls.append(img_url)
+
             events.append(
                 LaunchEventCreate(
                     name=stripped_text[:120],
@@ -347,6 +355,7 @@ class MastodonScraper(BaseScraper):
                     launch_type="civilian",
                     status="scheduled",
                     slug=slug,
+                    image_urls=image_urls,
                     claim_lifecycle="rumor",
                     event_kind="inferred",
                 )

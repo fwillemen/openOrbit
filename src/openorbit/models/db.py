@@ -64,11 +64,16 @@ class LaunchEventCreate(BaseModel):
         description="Event status"
     )
     slug: str | None = Field(default=None, description="Optional manual slug override")
+    image_urls: list[str] = Field(
+        default_factory=list,
+        description="URLs of images attached to the source post (e.g. social media imagery)",
+    )
     claim_lifecycle: Literal[
         "rumor", "indicated", "corroborated", "confirmed", "retracted"
     ] = Field(default="indicated", description="Epistemic lifecycle state of the claim")
     event_kind: Literal["observed", "inferred"] = Field(
-        default="observed", description="Whether the event is directly observed or inferred"
+        default="observed",
+        description="Whether the event is directly observed or inferred",
     )
 
 
@@ -100,12 +105,15 @@ class EventAttribution(BaseModel):
     source_name: str = Field(description="OSINT source name")
     scraped_at: datetime = Field(description="When data was scraped")
     url: str = Field(description="URL scraped")
-    source_url: str | None = Field(default=None, description="Direct URL of the evidence")
+    source_url: str | None = Field(
+        default=None, description="Direct URL of the evidence"
+    )
     observed_at: datetime | None = Field(
         default=None, description="Timestamp of when evidence was observed"
     )
     evidence_type: str | None = Field(
-        default=None, description="Evidence classification (e.g., 'official_schedule', 'notam')"
+        default=None,
+        description="Evidence classification (e.g., 'official_schedule', 'notam')",
     )
     source_tier: int | None = Field(
         default=None,
