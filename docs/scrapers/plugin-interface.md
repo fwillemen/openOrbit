@@ -228,6 +228,12 @@ Create `tests/scrapers/test_my_source.py` following the existing test patterns
 | `SpaceAgencyScraper` | `space_agency` | NASA/ESA feeds |
 | `CommercialScraper` | `commercial` | SpaceX / RocketLab feeds |
 | `NOTAMSScraper` | `notams` | FAA NOTAM API |
+| `BlueskyScraper` | `bluesky` | Bluesky AT Protocol API |
+| `MastodonScraper` | `mastodon` | Mastodon public API |
+| `RedditScraper` | `reddit` | Reddit public JSON API |
+| `FourChanScraper` | `4chan` | 4chan public JSON API |
+| `SpaceFlightNowScraper` | `news_spaceflightnow` | SpaceFlightNow RSS |
+| `NASASpaceflightScraper` | `news_nasaspaceflight` | NASASpaceflight RSS |
 
 ---
 
