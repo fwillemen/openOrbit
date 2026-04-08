@@ -35,6 +35,7 @@ from openorbit.config import get_settings
 from openorbit.db import (
     _db_connection,
     add_attribution,
+    close_db,
     get_db,
     get_osint_sources,
     init_db,
@@ -440,3 +441,27 @@ class TwitterScraper(BaseScraper):
             )
 
         return events
+
+
+async def main() -> None:
+    """Run the Twitter scraper as a one-shot command."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+    scraper = TwitterScraper()
+    try:
+        result = await scraper.scrape()
+        print("\n=== Twitter Scrape Summary ===")
+        print(f"Total events fetched: {result['total_fetched']}")
+        print(f"New events created: {result['new_events']}")
+        print(f"Existing events updated: {result['updated_events']}")
+        print("=" * 31)
+    finally:
+        await close_db()
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(main())
