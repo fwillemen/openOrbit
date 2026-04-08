@@ -364,7 +364,7 @@ class FourChanScraper(BaseScraper):
                     name=display_text,
                     launch_date=launch_date,
                     launch_date_precision="day",
-                    provider=f"4chan//{board}/",
+                    provider=f"4chan/{board}",
                     vehicle=None,
                     location=None,
                     pad=None,

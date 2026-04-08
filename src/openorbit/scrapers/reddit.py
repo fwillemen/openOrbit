@@ -367,7 +367,7 @@ class RedditScraper(BaseScraper):
                     name=display_text,
                     launch_date=launch_date,
                     launch_date_precision="day",
-                    provider=f"u/{author}" if author else "unknown",
+                    provider=f"u/{author}",
                     vehicle=None,
                     location=None,
                     pad=None,
