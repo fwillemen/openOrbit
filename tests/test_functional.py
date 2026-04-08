@@ -62,7 +62,8 @@ async def api_client():
     This enables verifying that events scraped into the DB are retrievable
     through the REST API layer.
     """
-    db_file = tempfile.mktemp(suffix=".db")
+    fd, db_file = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
     os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_file}"
     openorbit.config._settings = None
     db_module._db_connection = None
