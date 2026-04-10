@@ -14,6 +14,7 @@ from openorbit.scrapers.cnsa_official import CNSAOfficialScraper
 from openorbit.scrapers.esa_official import ESAOfficialScraper
 from openorbit.scrapers.isro_official import ISROOfficialScraper
 from openorbit.scrapers.jaxa_official import JAXAOfficialScraper
+from openorbit.scrapers.roscosmos_official import RoscosmosOfficialScraper
 
 
 @pytest.fixture
@@ -84,6 +85,7 @@ REGIONAL_SCRAPERS = [
     ISROOfficialScraper,
     ArianespaceOfficialScraper,
     CNSAOfficialScraper,
+    RoscosmosOfficialScraper,
 ]
 
 
@@ -146,3 +148,91 @@ async def test_scrape_idempotent(scraper_cls: type, db_connection) -> None:
     second = await scraper.scrape()
     assert second["new_events"] == 0
     assert second["updated_events"] == 1
+
+
+def _sample_roscosmos_rss_feed() -> str:
+    """RSS payload with Roscosmos-specific vehicle and location keywords."""
+    return """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<rss version=\"2.0\">
+  <channel>
+    <title>Roscosmos News</title>
+    <item>
+      <title>Soyuz-2.1b rocket launch from Baikonur cosmodrome</title>
+      <link>https://www.roscosmos.ru/eng/launch-soyuz</link>
+      <pubDate>Tue, 23 Mar 2026 12:00:00 GMT</pubDate>
+      <description>Upcoming launch of the Soyuz-2.1b rocket from Baikonur.</description>
+    </item>
+    <item>
+      <title>Angara-A5 liftoff from Plesetsk cosmodrome</title>
+      <link>https://www.roscosmos.ru/eng/launch-angara</link>
+      <pubDate>Wed, 24 Mar 2026 09:00:00 GMT</pubDate>
+      <description>Angara-A5 heavy-lift rocket liftoff from Plesetsk.</description>
+    </item>
+  </channel>
+</rss>
+"""
+
+
+def test_roscosmos_parse_filters_launch_entries() -> None:
+    """RoscosmosOfficialScraper should parse launch-like entries only."""
+    scraper = RoscosmosOfficialScraper()
+    events = scraper.parse(_sample_rss_feed())
+
+    assert len(events) == 1
+    assert events[0].provider == "Roscosmos"
+    assert events[0].slug.startswith("roscosmos_official-")
+
+
+def test_roscosmos_parse_infers_vehicle_soyuz() -> None:
+    """Soyuz vehicle hint should be inferred from title text."""
+    scraper = RoscosmosOfficialScraper()
+    events = scraper.parse(_sample_roscosmos_rss_feed())
+
+    soyuz_events = [e for e in events if e.vehicle and "Soyuz" in e.vehicle]
+    assert len(soyuz_events) >= 1
+    assert soyuz_events[0].vehicle == "Soyuz-2.1b"
+
+
+def test_roscosmos_parse_infers_vehicle_angara() -> None:
+    """Angara vehicle hint should be inferred from title text."""
+    scraper = RoscosmosOfficialScraper()
+    events = scraper.parse(_sample_roscosmos_rss_feed())
+
+    angara_events = [e for e in events if e.vehicle and "Angara" in e.vehicle]
+    assert len(angara_events) >= 1
+    assert angara_events[0].vehicle == "Angara-A5"
+
+
+def test_roscosmos_parse_infers_location_baikonur() -> None:
+    """Baikonur location hint should be inferred from feed text."""
+    scraper = RoscosmosOfficialScraper()
+    events = scraper.parse(_sample_roscosmos_rss_feed())
+
+    baikonur_events = [e for e in events if e.location and "Baikonur" in e.location]
+    assert len(baikonur_events) >= 1
+    assert baikonur_events[0].location == "Baikonur Cosmodrome, Kazakhstan"
+
+
+def test_roscosmos_parse_infers_location_plesetsk() -> None:
+    """Plesetsk location hint should be inferred from feed text."""
+    scraper = RoscosmosOfficialScraper()
+    events = scraper.parse(_sample_roscosmos_rss_feed())
+
+    plesetsk_events = [e for e in events if e.location and "Plesetsk" in e.location]
+    assert len(plesetsk_events) >= 1
+    assert plesetsk_events[0].location == "Plesetsk Cosmodrome, Russia"
+
+
+def test_roscosmos_feed_region() -> None:
+    """RoscosmosOfficialScraper.feed_region should return 'eurasia'."""
+    assert RoscosmosOfficialScraper.feed_region() == "eurasia"
+
+
+def test_roscosmos_source_tier_is_1() -> None:
+    """Roscosmos is a Tier 1 (official/regulatory) source."""
+    assert RoscosmosOfficialScraper.source_tier == 1
+
+
+def test_roscosmos_evidence_type() -> None:
+    """Roscosmos should produce official_schedule evidence."""
+    assert RoscosmosOfficialScraper.evidence_type == "official_schedule"

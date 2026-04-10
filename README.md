@@ -18,6 +18,7 @@ openOrbit is a modern REST API service that aggregates and tracks orbital launch
 - 🇮🇳 **ISRO Official Adapter** — Public ISRO feed connector for Indian launch-related updates
 - 🇪🇺 **Arianespace Adapter** — Public Arianespace feed connector for European commercial launch updates
 - 🇨🇳 **CNSA Adapter** — Public CNSA feed connector for Chinese launch-related updates
+- 🇷🇺 **Roscosmos Adapter** — Public Roscosmos feed connector for Russian launch-related updates
 - 🐦 **Twitter/X Adapter** — Twitter API v2 scraper for launch-related tweets from tracked accounts (requires bearer token)
 - 🔄 **Data Normalization Pipeline** — Converts raw scraper dicts into canonical `LaunchEvent` models with provider alias resolution, pad geo-enrichment, and multi-format date parsing
 - 🔄 **Async Architecture** — Non-blocking I/O for high-performance data collection
@@ -362,6 +363,7 @@ uv run python -m openorbit.scrapers.jaxa_official
 uv run python -m openorbit.scrapers.isro_official
 uv run python -m openorbit.scrapers.arianespace_official
 uv run python -m openorbit.scrapers.cnsa_official
+uv run python -m openorbit.scrapers.roscosmos_official
 ```
 
 Each adapter ingests RSS/Atom-like public feed entries and maps launch-related items
@@ -472,6 +474,7 @@ The table below summarizes what each current connector contributes.
 | `isro_official` | Official agency publication feed | Announcement-driven | Medium | High trust source for ISRO-related missions | RSS/news text requires inference, less structured |
 | `arianespace_official` | Official operator publication feed | Announcement-driven | Medium | High trust for Arianespace mission updates | Feed granularity varies; less structured launch fields |
 | `cnsa_official` | Official/state publication feed | Announcement-driven | Medium-Low to Medium | Geographic coverage expansion for China missions | Feed consistency and structure can vary over time |
+| `roscosmos_official` | Official/state publication feed | Announcement-driven | Medium-Low to Medium | Geographic coverage for Russian missions (Soyuz, Angara, Proton) | Feed quality may vary; English content is selective |
 | `twitter` | Twitter/X API v2 recent search | Real-time / recent | Low-Medium | Fast signal for breaking launch events; tracked account feeds | Requires paid bearer token; free tier is heavily rate-limited |
 
 Practical takeaway: combine structured APIs (`space_agency`, `spacex_official`) with
