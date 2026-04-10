@@ -17,6 +17,7 @@ from openorbit.scrapers import (  # noqa: F401
     notams,
     public_feed,
     reddit,
+    roscosmos_official,
     space_agency,
     spacex_official,
     twitter,
